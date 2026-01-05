@@ -161,6 +161,14 @@ pub enum ValidationError {
     EmptyTitle,
     #[error("title exceeds {MAX_TITLE_LEN} characters")]
     TitleTooLong,
+    #[error("recurrence interval must be >= 1")]
+    InvalidRecurrenceInterval,
+    #[error("weekly recurrence requires at least one weekday and no day_of_month")]
+    InvalidWeeklyRecurrence,
+    #[error("monthly recurrence requires day_of_month in 1..=31 and no weekdays")]
+    InvalidMonthlyRecurrence,
+    #[error("daily recurrence cannot set weekdays or day_of_month")]
+    InvalidDailyRecurrence,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -176,6 +184,7 @@ pub struct Card {
     pub updated_at: DateTime<Utc>,
     pub done_at: Option<DateTime<Utc>>,
     pub archived: bool,
+    pub recurrence: Option<RecurrenceRule>,
     pub blocked: bool,
 }
 
@@ -201,6 +210,7 @@ impl Card {
             updated_at: now,
             done_at: None,
             archived: false,
+            recurrence: None,
             blocked: false,
         })
     }
@@ -222,6 +232,56 @@ impl Card {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RecurrenceFrequency {
+    Daily,
+    Weekly,
+    Monthly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecurrenceRule {
+    pub frequency: RecurrenceFrequency,
+    pub interval: i64,
+    pub days_of_week: Option<Vec<Weekday>>,
+    pub day_of_month: Option<u8>,
+}
+
+impl RecurrenceRule {
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        if self.interval < 1 {
+            return Err(ValidationError::InvalidRecurrenceInterval);
+        }
+        match self.frequency {
+            RecurrenceFrequency::Daily => {
+                if self.days_of_week.is_some() || self.day_of_month.is_some() {
+                    return Err(ValidationError::InvalidDailyRecurrence);
+                }
+            }
+            RecurrenceFrequency::Weekly => {
+                let Some(days) = &self.days_of_week else {
+                    return Err(ValidationError::InvalidWeeklyRecurrence);
+                };
+                if days.is_empty() || self.day_of_month.is_some() {
+                    return Err(ValidationError::InvalidWeeklyRecurrence);
+                }
+            }
+            RecurrenceFrequency::Monthly => {
+                if self.days_of_week.is_some() {
+                    return Err(ValidationError::InvalidMonthlyRecurrence);
+                }
+                let Some(day) = self.day_of_month else {
+                    return Err(ValidationError::InvalidMonthlyRecurrence);
+                };
+                if !(1..=31).contains(&day) {
+                    return Err(ValidationError::InvalidMonthlyRecurrence);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 fn validate_title(raw: String) -> Result<String, ValidationError> {
     let title = raw.trim().to_owned();
     if title.is_empty() {
@@ -237,7 +297,9 @@ fn validate_title(raw: String) -> Result<String, ValidationError> {
 mod tests {
     use chrono::Utc;
 
-    use super::{Card, CardId, Column, ValidationError, Weekday};
+    use super::{
+        Card, CardId, Column, RecurrenceFrequency, RecurrenceRule, ValidationError, Weekday,
+    };
     use std::str::FromStr;
 
     #[test]
@@ -269,6 +331,34 @@ mod tests {
         assert_eq!(
             result.expect_err("title should fail"),
             ValidationError::TitleTooLong
+        );
+    }
+
+    #[test]
+    fn weekly_recurrence_requires_days() {
+        let rule = RecurrenceRule {
+            frequency: RecurrenceFrequency::Weekly,
+            interval: 1,
+            days_of_week: Some(vec![]),
+            day_of_month: None,
+        };
+        assert_eq!(
+            rule.validate().expect_err("weekly rule should fail"),
+            ValidationError::InvalidWeeklyRecurrence
+        );
+    }
+
+    #[test]
+    fn monthly_recurrence_requires_day_of_month() {
+        let rule = RecurrenceRule {
+            frequency: RecurrenceFrequency::Monthly,
+            interval: 1,
+            days_of_week: None,
+            day_of_month: Some(32),
+        };
+        assert_eq!(
+            rule.validate().expect_err("monthly rule should fail"),
+            ValidationError::InvalidMonthlyRecurrence
         );
     }
 }
