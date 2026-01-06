@@ -3,7 +3,7 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Duration, Months, NaiveDate, Utc};
 use rusqlite::types::{FromSql, FromSqlError, FromSqlResult, ToSql, ToSqlOutput, ValueRef};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -112,6 +112,18 @@ impl Weekday {
             Self::Fri => "Fri",
             Self::Sat => "Sat",
             Self::Sun => "Sun",
+        }
+    }
+
+    pub fn number_from_monday(self) -> u32 {
+        match self {
+            Self::Mon => 1,
+            Self::Tue => 2,
+            Self::Wed => 3,
+            Self::Thu => 4,
+            Self::Fri => 5,
+            Self::Sat => 6,
+            Self::Sun => 7,
         }
     }
 }
@@ -280,6 +292,68 @@ impl RecurrenceRule {
         }
         Ok(())
     }
+
+    pub fn next_due_date(&self, after_date: NaiveDate) -> Result<NaiveDate, ValidationError> {
+        self.validate()?;
+        match self.frequency {
+            RecurrenceFrequency::Daily => Ok(after_date + Duration::days(self.interval)),
+            RecurrenceFrequency::Weekly => {
+                let mut days = self
+                    .days_of_week
+                    .clone()
+                    .ok_or(ValidationError::InvalidWeeklyRecurrence)?;
+                days.sort_by_key(|day| day.number_from_monday());
+
+                let current_idx = after_date.weekday().number_from_monday();
+                if let Some(next_day) = days
+                    .iter()
+                    .find(|day| day.number_from_monday() > current_idx)
+                    .copied()
+                {
+                    let delta = i64::from(next_day.number_from_monday()) - i64::from(current_idx);
+                    return Ok(after_date + Duration::days(delta));
+                }
+
+                let first_day = days[0];
+                let week_start =
+                    after_date - Duration::days(i64::from(current_idx.saturating_sub(1)));
+                let target_week_start = week_start + Duration::days(self.interval * 7);
+                Ok(target_week_start + Duration::days(i64::from(first_day.number_from_monday() - 1)))
+            }
+            RecurrenceFrequency::Monthly => {
+                let day = self
+                    .day_of_month
+                    .ok_or(ValidationError::InvalidMonthlyRecurrence)?;
+                let month_anchor = NaiveDate::from_ymd_opt(after_date.year(), after_date.month(), 1)
+                    .expect("valid current month first day");
+                let next_month_anchor = month_anchor
+                    .checked_add_months(Months::new(
+                        u32::try_from(self.interval)
+                            .map_err(|_| ValidationError::InvalidRecurrenceInterval)?,
+                    ))
+                    .expect("next month anchor should exist");
+
+                let max_day = last_day_of_month(next_month_anchor.year(), next_month_anchor.month());
+                let clamped_day = u32::from(day).min(max_day);
+                Ok(NaiveDate::from_ymd_opt(
+                    next_month_anchor.year(),
+                    next_month_anchor.month(),
+                    clamped_day,
+                )
+                .expect("clamped day should be valid"))
+            }
+        }
+    }
+}
+
+fn last_day_of_month(year: i32, month: u32) -> u32 {
+    let (next_year, next_month) = if month == 12 {
+        (year + 1, 1)
+    } else {
+        (year, month + 1)
+    };
+    let first_of_next = NaiveDate::from_ymd_opt(next_year, next_month, 1).expect("valid date");
+    (first_of_next - Duration::days(1)).day()
 }
 
 fn validate_title(raw: String) -> Result<String, ValidationError> {
@@ -295,7 +369,7 @@ fn validate_title(raw: String) -> Result<String, ValidationError> {
 
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
+    use chrono::{NaiveDate, Utc};
 
     use super::{
         Card, CardId, Column, RecurrenceFrequency, RecurrenceRule, ValidationError, Weekday,
@@ -360,5 +434,44 @@ mod tests {
             rule.validate().expect_err("monthly rule should fail"),
             ValidationError::InvalidMonthlyRecurrence
         );
+    }
+
+    #[test]
+    fn daily_recurrence_next_due_date_uses_interval() {
+        let rule = RecurrenceRule {
+            frequency: RecurrenceFrequency::Daily,
+            interval: 2,
+            days_of_week: None,
+            day_of_month: None,
+        };
+        let after = NaiveDate::from_ymd_opt(2026, 3, 7).expect("valid date");
+        let expected = NaiveDate::from_ymd_opt(2026, 3, 9).expect("valid date");
+        assert_eq!(rule.next_due_date(after).expect("should compute"), expected);
+    }
+
+    #[test]
+    fn weekly_recurrence_uses_next_selected_day_before_interval_jump() {
+        let rule = RecurrenceRule {
+            frequency: RecurrenceFrequency::Weekly,
+            interval: 2,
+            days_of_week: Some(vec![Weekday::Mon, Weekday::Wed]),
+            day_of_month: None,
+        };
+        let after = NaiveDate::from_ymd_opt(2026, 3, 2).expect("valid date");
+        let expected = NaiveDate::from_ymd_opt(2026, 3, 4).expect("valid date");
+        assert_eq!(rule.next_due_date(after).expect("should compute"), expected);
+    }
+
+    #[test]
+    fn monthly_recurrence_clamps_to_end_of_month() {
+        let rule = RecurrenceRule {
+            frequency: RecurrenceFrequency::Monthly,
+            interval: 1,
+            days_of_week: None,
+            day_of_month: Some(31),
+        };
+        let after = NaiveDate::from_ymd_opt(2026, 1, 31).expect("valid date");
+        let expected = NaiveDate::from_ymd_opt(2026, 2, 28).expect("valid date");
+        assert_eq!(rule.next_due_date(after).expect("should compute"), expected);
     }
 }
