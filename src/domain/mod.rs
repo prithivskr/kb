@@ -367,6 +367,10 @@ fn validate_title(raw: String) -> Result<String, ValidationError> {
     Ok(title)
 }
 
+pub fn validate_card_title(raw: impl Into<String>) -> Result<String, ValidationError> {
+    validate_title(raw.into())
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::{NaiveDate, Utc};
