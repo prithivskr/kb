@@ -9,7 +9,31 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
-const MIGRATIONS: &[Migration] = &[];
+const MIGRATION_001_CARDS: Migration = Migration {
+    version: 1,
+    name: "create_cards",
+    sql: "
+        CREATE TABLE cards (
+            id         TEXT PRIMARY KEY NOT NULL,
+            title      TEXT NOT NULL CHECK(length(title) > 0 AND length(title) <= 200),
+            notes      TEXT,
+            column     TEXT NOT NULL CHECK(column IN ('Backlog', 'ThisWeek', 'Today', 'Done')),
+            position   INTEGER NOT NULL,
+            due_date   TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            done_at    TEXT,
+            archived   INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0, 1)),
+            blocked    INTEGER NOT NULL DEFAULT 0 CHECK(blocked IN (0, 1))
+        );
+
+        CREATE INDEX idx_cards_column_position ON cards(column, position);
+        CREATE INDEX idx_cards_due_date ON cards(due_date) WHERE due_date IS NOT NULL;
+        CREATE INDEX idx_cards_archived ON cards(archived);
+        CREATE INDEX idx_cards_done_at ON cards(done_at) WHERE done_at IS NOT NULL;
+    ",
+};
+const MIGRATIONS: &[Migration] = &[MIGRATION_001_CARDS];
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     ensure_schema_migrations_table(conn)?;
@@ -89,5 +113,19 @@ mod tests {
             )
             .expect("query should succeed");
         assert_eq!(count, 1);
+
+        let cards_table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='cards'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query should succeed");
+        assert_eq!(cards_table_count, 1);
+
+        let applied_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
+            .expect("query should succeed");
+        assert_eq!(applied_count, 1);
     }
 }
