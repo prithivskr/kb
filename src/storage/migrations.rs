@@ -33,7 +33,26 @@ const MIGRATION_001_CARDS: Migration = Migration {
         CREATE INDEX idx_cards_done_at ON cards(done_at) WHERE done_at IS NOT NULL;
     ",
 };
-const MIGRATIONS: &[Migration] = &[MIGRATION_001_CARDS];
+const MIGRATION_002_TAGS: Migration = Migration {
+    version: 2,
+    name: "create_tags",
+    sql: "
+        CREATE TABLE tags (
+            id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE CHECK(length(trim(name)) > 0)
+        );
+
+        CREATE TABLE card_tags (
+            card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            tag_id  INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+            PRIMARY KEY(card_id, tag_id)
+        );
+
+        CREATE INDEX idx_card_tags_card_id ON card_tags(card_id);
+        CREATE INDEX idx_card_tags_tag_id ON card_tags(tag_id);
+    ",
+};
+const MIGRATIONS: &[Migration] = &[MIGRATION_001_CARDS, MIGRATION_002_TAGS];
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     ensure_schema_migrations_table(conn)?;
@@ -126,6 +145,24 @@ mod tests {
         let applied_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
             .expect("query should succeed");
-        assert_eq!(applied_count, 1);
+        assert_eq!(applied_count, 2);
+
+        let tags_table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='tags'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query should succeed");
+        assert_eq!(tags_table_count, 1);
+
+        let card_tags_table_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='card_tags'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("query should succeed");
+        assert_eq!(card_tags_table_count, 1);
     }
 }
