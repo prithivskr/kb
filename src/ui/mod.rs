@@ -9,7 +9,10 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::widgets::{Block, Borders};
 
+mod app;
+
 pub fn run_ui() -> Result<()> {
+    let _app = app::AppState::seeded();
     let mut terminal = init_terminal()?;
     terminal.draw(|frame| {
         let area = frame.area();
