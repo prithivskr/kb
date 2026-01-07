@@ -122,7 +122,8 @@ fn apply_migration(conn: &mut Connection, migration: &Migration) -> Result<()> {
     tx.execute_batch(migration.sql)
         .with_context(|| format!("failed applying migration {}", migration.version))?;
     record_migration(&tx, migration)?;
-    tx.commit().context("failed to commit migration transaction")?;
+    tx.commit()
+        .context("failed to commit migration transaction")?;
     Ok(())
 }
 
@@ -167,7 +168,9 @@ mod tests {
         assert_eq!(cards_table_count, 1);
 
         let applied_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
+            .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+                row.get(0)
+            })
             .expect("query should succeed");
         assert_eq!(applied_count, 3);
 

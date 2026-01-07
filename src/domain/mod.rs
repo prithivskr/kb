@@ -227,7 +227,11 @@ impl Card {
         })
     }
 
-    pub fn set_title(&mut self, title: impl Into<String>, now: DateTime<Utc>) -> Result<(), ValidationError> {
+    pub fn set_title(
+        &mut self,
+        title: impl Into<String>,
+        now: DateTime<Utc>,
+    ) -> Result<(), ValidationError> {
         self.title = validate_title(title.into())?;
         self.updated_at = now;
         Ok(())
@@ -362,14 +366,16 @@ impl RecurrenceRule {
                 let week_start =
                     after_date - Duration::days(i64::from(current_idx.saturating_sub(1)));
                 let target_week_start = week_start + Duration::days(self.interval * 7);
-                Ok(target_week_start + Duration::days(i64::from(first_day.number_from_monday() - 1)))
+                Ok(target_week_start
+                    + Duration::days(i64::from(first_day.number_from_monday() - 1)))
             }
             RecurrenceFrequency::Monthly => {
                 let day = self
                     .day_of_month
                     .ok_or(ValidationError::InvalidMonthlyRecurrence)?;
-                let month_anchor = NaiveDate::from_ymd_opt(after_date.year(), after_date.month(), 1)
-                    .expect("valid current month first day");
+                let month_anchor =
+                    NaiveDate::from_ymd_opt(after_date.year(), after_date.month(), 1)
+                        .expect("valid current month first day");
                 let next_month_anchor = month_anchor
                     .checked_add_months(Months::new(
                         u32::try_from(self.interval)
@@ -377,7 +383,8 @@ impl RecurrenceRule {
                     ))
                     .expect("next month anchor should exist");
 
-                let max_day = last_day_of_month(next_month_anchor.year(), next_month_anchor.month());
+                let max_day =
+                    last_day_of_month(next_month_anchor.year(), next_month_anchor.month());
                 let clamped_day = u32::from(day).min(max_day);
                 Ok(NaiveDate::from_ymd_opt(
                     next_month_anchor.year(),
@@ -443,7 +450,10 @@ mod tests {
     #[test]
     fn card_title_validation_rejects_empty() {
         let result = Card::new(CardId::new(), "   ", Column::Backlog, 0, Utc::now());
-        assert_eq!(result.expect_err("title should fail"), ValidationError::EmptyTitle);
+        assert_eq!(
+            result.expect_err("title should fail"),
+            ValidationError::EmptyTitle
+        );
     }
 
     #[test]

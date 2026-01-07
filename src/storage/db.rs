@@ -12,13 +12,21 @@ pub fn default_db_path() -> Result<PathBuf> {
     }
 
     let home = dirs::home_dir().context("could not resolve home directory")?;
-    Ok(home.join(".local").join("share").join(APP_NAME).join(DB_FILENAME))
+    Ok(home
+        .join(".local")
+        .join("share")
+        .join(APP_NAME)
+        .join(DB_FILENAME))
 }
 
 pub fn ensure_db_parent_exists(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create database directory at {}", parent.display()))?;
+        std::fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create database directory at {}",
+                parent.display()
+            )
+        })?;
     }
     Ok(())
 }
