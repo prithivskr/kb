@@ -251,6 +251,50 @@ pub enum RecurrenceFrequency {
     Monthly,
 }
 
+impl RecurrenceFrequency {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Daily => "Daily",
+            Self::Weekly => "Weekly",
+            Self::Monthly => "Monthly",
+        }
+    }
+}
+
+impl Display for RecurrenceFrequency {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl FromStr for RecurrenceFrequency {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Daily" => Ok(Self::Daily),
+            "Weekly" => Ok(Self::Weekly),
+            "Monthly" => Ok(Self::Monthly),
+            _ => Err(format!("invalid recurrence frequency: {s}")),
+        }
+    }
+}
+
+impl ToSql for RecurrenceFrequency {
+    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
+        Ok(self.as_str().into())
+    }
+}
+
+impl FromSql for RecurrenceFrequency {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        let raw = value.as_str()?;
+        raw.parse().map_err(|_| {
+            FromSqlError::Other(format!("invalid recurrence frequency value: {raw}").into())
+        })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecurrenceRule {
     pub frequency: RecurrenceFrequency,
