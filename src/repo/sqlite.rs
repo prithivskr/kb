@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
-use rusqlite::types::Type;
-use rusqlite::{params, Connection, OptionalExtension, Row, Transaction};
+use rusqlite::types::{Type, Value};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, Transaction};
 
 use crate::domain::{
     validate_card_title, Card, CardId, Column, RecurrenceFrequency, RecurrenceRule, Weekday,
@@ -342,10 +342,181 @@ impl SqliteRepository {
         spawned_id.map(|spawn_id| self.get_card(spawn_id)).transpose().map(|v| v.flatten())
     }
 
+    pub fn set_tags(&mut self, id: CardId, tags: Vec<String>) -> Result<()> {
+        let normalized_tags = normalize_tags(tags);
+        let tx = self
+            .conn
+            .transaction()
+            .context("failed to begin set_tags transaction")?;
+
+        let exists = fetch_card_location(&tx, id)?.is_some();
+        if !exists {
+            anyhow::bail!("card not found: {id}");
+        }
+
+        tx.execute("DELETE FROM card_tags WHERE card_id = ?1", [id.to_string()])
+            .context("failed to clear existing card tags")?;
+
+        for tag_name in &normalized_tags {
+            tx.execute(
+                "INSERT INTO tags(name) VALUES(?1) ON CONFLICT(name) DO NOTHING",
+                [tag_name],
+            )
+            .context("failed inserting tag")?;
+
+            let tag_id: i64 = tx
+                .query_row("SELECT id FROM tags WHERE name = ?1", [tag_name], |row| row.get(0))
+                .context("failed loading tag id")?;
+
+            tx.execute(
+                "INSERT INTO card_tags(card_id, tag_id) VALUES(?1, ?2)",
+                params![id.to_string(), tag_id],
+            )
+            .context("failed linking tag to card")?;
+        }
+
+        tx.execute(
+            "UPDATE cards SET updated_at = ?1 WHERE id = ?2",
+            [Utc::now().to_rfc3339(), id.to_string()],
+        )
+        .context("failed to update card timestamp after setting tags")?;
+
+        tx.commit()
+            .context("failed to commit set_tags transaction")?;
+        Ok(())
+    }
+
+    pub fn list_tags_in_use(&self) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT DISTINCT t.name
+                 FROM tags t
+                 JOIN card_tags ct ON ct.tag_id = t.id
+                 JOIN cards c ON c.id = ct.card_id
+                 WHERE c.archived = 0
+                 ORDER BY t.name ASC",
+            )
+            .context("failed to prepare list_tags_in_use statement")?;
+
+        let iter = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .context("failed querying tags in use")?;
+        let tags: rusqlite::Result<Vec<String>> = iter.collect();
+        Ok(tags.context("failed reading tags in use")?)
+    }
+
+    pub fn filter_cards_by_tags(&self, tags: &[String]) -> Result<Vec<Card>> {
+        let normalized_tags = normalize_tags(tags.to_vec());
+        if normalized_tags.is_empty() {
+            return self.list_all_active_cards();
+        }
+
+        let placeholders = std::iter::repeat_n("?", normalized_tags.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT
+                c.id, c.title, c.notes, c.column, c.position, c.due_date,
+                c.created_at, c.updated_at, c.done_at, c.archived, c.blocked
+             FROM cards c
+             JOIN card_tags ct ON ct.card_id = c.id
+             JOIN tags t ON t.id = ct.tag_id
+             WHERE c.archived = 0 AND t.name IN ({placeholders})
+             GROUP BY c.id
+             HAVING COUNT(DISTINCT t.name) = ?
+             ORDER BY c.column ASC, c.position ASC, c.created_at ASC"
+        );
+
+        let mut bind_values: Vec<Value> = normalized_tags
+            .iter()
+            .cloned()
+            .map(Value::Text)
+            .collect();
+        bind_values.push(Value::Integer(
+            i64::try_from(normalized_tags.len()).expect("tag count should fit in i64"),
+        ));
+
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
+            .context("failed to prepare filter_cards_by_tags statement")?;
+        let iter = stmt
+            .query_map(params_from_iter(bind_values), row_to_card)
+            .context("failed querying filtered cards")?;
+
+        let cards: rusqlite::Result<Vec<Card>> = iter.collect();
+        cards
+            .context("failed reading filtered cards")?
+            .into_iter()
+            .map(|card| self.hydrate_card(card))
+            .collect()
+    }
+
+    pub fn archive_all_done(&mut self) -> Result<usize> {
+        let now = Utc::now().to_rfc3339();
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE cards
+                 SET archived = 1, updated_at = ?1
+                 WHERE column = 'Done' AND archived = 0",
+                [now],
+            )
+            .context("failed archiving done cards")?;
+        Ok(updated)
+    }
+
+    pub fn archive_done_older_than(&mut self, days: i64) -> Result<usize> {
+        if days < 0 {
+            anyhow::bail!("archive days must be >= 0");
+        }
+
+        let now = Utc::now();
+        let cutoff = now - Duration::days(days);
+        let updated = self
+            .conn
+            .execute(
+                "UPDATE cards
+                 SET archived = 1, updated_at = ?1
+                 WHERE column = 'Done'
+                   AND archived = 0
+                   AND done_at IS NOT NULL
+                   AND done_at < ?2",
+                params![now.to_rfc3339(), cutoff.to_rfc3339()],
+            )
+            .context("failed auto-archiving old done cards")?;
+        Ok(updated)
+    }
+
     fn hydrate_card(&self, mut card: Card) -> Result<Card> {
         card.tags = fetch_tags_for_card_conn(&self.conn, card.id)?;
         card.recurrence = fetch_recurrence_rule_conn(&self.conn, card.id)?;
         Ok(card)
+    }
+
+    fn list_all_active_cards(&self) -> Result<Vec<Card>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT
+                    id, title, notes, column, position, due_date,
+                    created_at, updated_at, done_at, archived, blocked
+                 FROM cards
+                 WHERE archived = 0
+                 ORDER BY column ASC, position ASC, created_at ASC",
+            )
+            .context("failed to prepare list_all_active_cards statement")?;
+
+        let iter = stmt
+            .query_map([], row_to_card)
+            .context("failed listing active cards")?;
+        let cards: rusqlite::Result<Vec<Card>> = iter.collect();
+        cards
+            .context("failed parsing active cards")?
+            .into_iter()
+            .map(|card| self.hydrate_card(card))
+            .collect()
     }
 }
 
@@ -666,6 +837,21 @@ fn next_position_in_column(tx: &Transaction<'_>, column: Column) -> Result<i64> 
     Ok(position)
 }
 
+fn normalize_tags(tags: Vec<String>) -> Vec<String> {
+    let mut output = Vec::new();
+    for tag in tags {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let value = trimmed.to_owned();
+        if !output.contains(&value) {
+            output.push(value);
+        }
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::{Duration, NaiveDate, Utc};
@@ -834,5 +1020,114 @@ mod tests {
             )
             .expect("tag count should succeed");
         assert_eq!(tag_count, 1);
+    }
+
+    #[test]
+    fn tag_management_and_filtering() {
+        let conn = Connection::open_in_memory().expect("in-memory db should open");
+        let mut repo = SqliteRepository::new(conn).expect("repo should initialize");
+
+        let first = repo
+            .create_card(NewCard {
+                title: "Card one".to_string(),
+                notes: None,
+                column: Column::Backlog,
+                position: 0,
+                due_date: None,
+                recurrence: None,
+            })
+            .expect("card create should succeed");
+        let second = repo
+            .create_card(NewCard {
+                title: "Card two".to_string(),
+                notes: None,
+                column: Column::Backlog,
+                position: 1,
+                due_date: None,
+                recurrence: None,
+            })
+            .expect("card create should succeed");
+
+        repo.set_tags(
+            first.id,
+            vec!["p1".to_string(), "backend".to_string(), "p1".to_string()],
+        )
+        .expect("set_tags should succeed");
+        repo.set_tags(second.id, vec!["p1".to_string()])
+            .expect("set_tags should succeed");
+
+        let tags = repo.list_tags_in_use().expect("list tags should succeed");
+        assert_eq!(tags, vec!["backend".to_string(), "p1".to_string()]);
+
+        let p1_cards = repo
+            .filter_cards_by_tags(&["p1".to_string()])
+            .expect("filter should succeed");
+        assert_eq!(p1_cards.len(), 2);
+
+        let backend_cards = repo
+            .filter_cards_by_tags(&["p1".to_string(), "backend".to_string()])
+            .expect("filter should succeed");
+        assert_eq!(backend_cards.len(), 1);
+        assert_eq!(backend_cards[0].id, first.id);
+    }
+
+    #[test]
+    fn archive_operations_mark_done_cards_as_archived() {
+        let conn = Connection::open_in_memory().expect("in-memory db should open");
+        let mut repo = SqliteRepository::new(conn).expect("repo should initialize");
+
+        let old_done = repo
+            .create_card(NewCard {
+                title: "Old done".to_string(),
+                notes: None,
+                column: Column::Done,
+                position: 0,
+                due_date: None,
+                recurrence: None,
+            })
+            .expect("card create should succeed");
+        let fresh_done = repo
+            .create_card(NewCard {
+                title: "Fresh done".to_string(),
+                notes: None,
+                column: Column::Done,
+                position: 1,
+                due_date: None,
+                recurrence: None,
+            })
+            .expect("card create should succeed");
+
+        let ten_days_ago = (Utc::now() - Duration::days(10)).to_rfc3339();
+        let now = Utc::now().to_rfc3339();
+        repo.connection()
+            .execute(
+                "UPDATE cards SET done_at = ?1 WHERE id = ?2",
+                rusqlite::params![ten_days_ago, old_done.id.to_string()],
+            )
+            .expect("old done timestamp update should succeed");
+        repo.connection()
+            .execute(
+                "UPDATE cards SET done_at = ?1 WHERE id = ?2",
+                rusqlite::params![now, fresh_done.id.to_string()],
+            )
+            .expect("fresh done timestamp update should succeed");
+
+        let auto_archived = repo
+            .archive_done_older_than(7)
+            .expect("auto-archive should succeed");
+        assert_eq!(auto_archived, 1);
+
+        let archived_old: i64 = repo
+            .connection()
+            .query_row(
+                "SELECT archived FROM cards WHERE id = ?1",
+                [old_done.id.to_string()],
+                |row| row.get(0),
+            )
+            .expect("query should succeed");
+        assert_eq!(archived_old, 1);
+
+        let archived_rest = repo.archive_all_done().expect("archive-all should succeed");
+        assert_eq!(archived_rest, 1);
     }
 }
