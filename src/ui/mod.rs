@@ -10,12 +10,17 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
+use crate::repo::SqliteRepository;
+use crate::storage::open_default_connection;
+
 mod app;
 mod render;
 mod theme;
 
 pub fn run_ui() -> Result<()> {
-    let mut app = app::AppState::seeded();
+    let conn = open_default_connection()?;
+    let repo = SqliteRepository::new(conn)?;
+    let mut app = load_board_state(&repo)?;
     let mut terminal = init_terminal()?;
     let result = run_event_loop(&mut terminal, &mut app);
     restore_terminal(terminal)?;
@@ -69,4 +74,12 @@ fn map_key_to_action(key: KeyEvent) -> app::UiAction {
         KeyCode::Char('k') => app::UiAction::CursorUp,
         _ => app::UiAction::None,
     }
+}
+
+fn load_board_state(repo: &SqliteRepository) -> Result<app::AppState> {
+    let mut cards = Vec::new();
+    for column in app::UiColumn::ALL {
+        cards.extend(repo.list_cards_in_column(column.to_domain())?);
+    }
+    Ok(app::AppState::from_domain_cards(cards))
 }
