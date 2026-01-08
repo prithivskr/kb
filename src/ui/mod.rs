@@ -2,7 +2,7 @@ use std::io::{self, Stdout};
 use std::time::Duration;
 
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode};
+use crossterm::event::{self, Event, KeyCode, KeyEvent};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -52,23 +52,21 @@ fn run_event_loop(
             let Event::Key(key) = event::read()? else {
                 continue;
             };
-
-            match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                KeyCode::Char('h') | KeyCode::BackTab => {
-                    let current = app.active_column.to_index();
-                    let next = (current + 3) % app::UiColumn::ALL.len();
-                    app.active_column = app::UiColumn::from_index(next);
-                }
-                KeyCode::Char('l') | KeyCode::Tab => {
-                    let current = app.active_column.to_index();
-                    let next = (current + 1) % app::UiColumn::ALL.len();
-                    app.active_column = app::UiColumn::from_index(next);
-                }
-                KeyCode::Char('j') => app.move_selection_down_active(),
-                KeyCode::Char('k') => app.move_selection_up_active(),
-                _ => {}
+            let action = map_key_to_action(key);
+            if app.apply_action(action) {
+                return Ok(());
             }
         }
+    }
+}
+
+fn map_key_to_action(key: KeyEvent) -> app::UiAction {
+    match key.code {
+        KeyCode::Char('q') | KeyCode::Esc => app::UiAction::Quit,
+        KeyCode::Char('h') | KeyCode::BackTab => app::UiAction::ColumnPrev,
+        KeyCode::Char('l') | KeyCode::Tab => app::UiAction::ColumnNext,
+        KeyCode::Char('j') => app::UiAction::CursorDown,
+        KeyCode::Char('k') => app::UiAction::CursorUp,
+        _ => app::UiAction::None,
     }
 }

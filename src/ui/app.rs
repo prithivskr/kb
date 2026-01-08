@@ -60,6 +60,16 @@ pub struct AppState {
     pub selected_by_column: [usize; 4],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UiAction {
+    Quit,
+    ColumnPrev,
+    ColumnNext,
+    CursorUp,
+    CursorDown,
+    None,
+}
+
 impl AppState {
     pub fn seeded() -> Self {
         Self {
@@ -144,6 +154,33 @@ impl AppState {
         let current = self.selected_index(column);
         let next = current.saturating_sub(1);
         self.set_selected_index(column, next);
+    }
+
+    pub fn apply_action(&mut self, action: UiAction) -> bool {
+        match action {
+            UiAction::Quit => true,
+            UiAction::ColumnPrev => {
+                let current = self.active_column.to_index();
+                let next = (current + 3) % UiColumn::ALL.len();
+                self.active_column = UiColumn::from_index(next);
+                false
+            }
+            UiAction::ColumnNext => {
+                let current = self.active_column.to_index();
+                let next = (current + 1) % UiColumn::ALL.len();
+                self.active_column = UiColumn::from_index(next);
+                false
+            }
+            UiAction::CursorUp => {
+                self.move_selection_up_active();
+                false
+            }
+            UiAction::CursorDown => {
+                self.move_selection_down_active();
+                false
+            }
+            UiAction::None => false,
+        }
     }
 
     pub fn week_range_label(&self) -> String {
