@@ -1,9 +1,9 @@
 use chrono::{Duration, Local, NaiveDate};
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
+use ratatui::widgets::{Block, Borders, Padding, Paragraph};
 
 use crate::ui::app::{AppState, UiColumn};
 use crate::ui::theme;
@@ -32,7 +32,13 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
             .style(Style::default().fg(theme::FG).bg(theme::BG))
             .border_style(border_style);
         frame.render_widget(block, board_chunks[index]);
-        render_cards_in_column(frame, board_chunks[index], cards);
+        render_cards_in_column(
+            frame,
+            board_chunks[index],
+            cards,
+            *column == app.active_column,
+            app.selected_index(*column),
+        );
     }
 
     let status = format!(
@@ -54,7 +60,13 @@ fn due_date_style(due_date: Option<NaiveDate>, today: NaiveDate) -> Style {
     }
 }
 
-fn render_cards_in_column(frame: &mut Frame<'_>, area: Rect, cards: Vec<&crate::ui::app::UiCard>) {
+fn render_cards_in_column(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    cards: Vec<&crate::ui::app::UiCard>,
+    is_active_column: bool,
+    selected_index: usize,
+) {
     let today = Local::now().date_naive();
     let inner = area.inner(ratatui::layout::Margin {
         vertical: 1,
@@ -62,7 +74,7 @@ fn render_cards_in_column(frame: &mut Frame<'_>, area: Rect, cards: Vec<&crate::
     });
     let mut y = inner.y;
 
-    for card in cards {
+    for (index, card) in cards.into_iter().enumerate() {
         let card_height = 4;
         if y.saturating_add(card_height) > inner.y.saturating_add(inner.height) {
             break;
@@ -84,15 +96,27 @@ fn render_cards_in_column(frame: &mut Frame<'_>, area: Rect, cards: Vec<&crate::
         };
 
         let card_area = Rect::new(inner.x, y, inner.width, card_height);
+        let is_selected = is_active_column && index == selected_index;
+        let base_line_style = due_date_style(card.due_date, today);
+        let line_style = if is_selected {
+            base_line_style.add_modifier(Modifier::BOLD)
+        } else {
+            base_line_style
+        };
+        let card_border = if is_selected {
+            Style::default().fg(theme::ACTIVE_BORDER)
+        } else {
+            Style::default().fg(theme::BORDER)
+        };
         let card_widget = Paragraph::new(vec![
-            Line::from(title).style(due_date_style(card.due_date, today)),
+            Line::from(title).style(line_style),
             Line::from(format!("{due_text}  {tag_text}")),
         ])
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .padding(Padding::horizontal(1))
-                .border_style(Style::default().fg(theme::BORDER)),
+                .border_style(card_border),
         )
         .style(Style::default().fg(theme::FG).bg(theme::BG));
         frame.render_widget(card_widget, card_area);
