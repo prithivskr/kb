@@ -142,17 +142,7 @@ impl AppState {
     }
 
     pub fn from_domain_cards(cards: Vec<Card>) -> Self {
-        let mapped = cards
-            .into_iter()
-            .map(|card| UiCard {
-                id: card.id,
-                title: card.title,
-                column: UiColumn::from_domain(card.column),
-                tags: card.tags,
-                due_date: card.due_date,
-                blocked: card.blocked,
-            })
-            .collect();
+        let mapped = map_domain_cards(cards);
 
         Self {
             cards: mapped,
@@ -239,6 +229,31 @@ impl AppState {
         }
     }
 
+    pub fn replace_from_domain_cards(&mut self, cards: Vec<Card>) {
+        self.cards = map_domain_cards(cards);
+        self.reconcile_selection();
+    }
+
+    pub fn reconcile_selection(&mut self) {
+        for column in UiColumn::ALL {
+            let len = self.column_len(column);
+            let clamped = if len == 0 {
+                0
+            } else {
+                self.selected_index(column).min(len - 1)
+            };
+            self.set_selected_index(column, clamped);
+        }
+    }
+
+    pub fn selected_card_id_active(&self) -> Option<CardId> {
+        let column = self.active_column;
+        let selected = self.selected_index(column);
+        self.cards_in_column(column)
+            .get(selected)
+            .map(|card| card.id)
+    }
+
     pub fn week_range_label(&self) -> String {
         let today = Local::now().date_naive();
         let offset = i64::from(weekday_from_monday(today.weekday()) - 1);
@@ -251,6 +266,20 @@ impl AppState {
             week_start.year()
         )
     }
+}
+
+fn map_domain_cards(cards: Vec<Card>) -> Vec<UiCard> {
+    cards
+        .into_iter()
+        .map(|card| UiCard {
+            id: card.id,
+            title: card.title,
+            column: UiColumn::from_domain(card.column),
+            tags: card.tags,
+            due_date: card.due_date,
+            blocked: card.blocked,
+        })
+        .collect()
 }
 
 fn weekday_from_monday(day: Weekday) -> u32 {

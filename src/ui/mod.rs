@@ -83,3 +83,12 @@ fn load_board_state(repo: &SqliteRepository) -> Result<app::AppState> {
     }
     Ok(app::AppState::from_domain_cards(cards))
 }
+
+fn reload_board_state(repo: &SqliteRepository, app: &mut app::AppState) -> Result<()> {
+    let mut cards = Vec::new();
+    for column in app::UiColumn::ALL {
+        cards.extend(repo.list_cards_in_column(column.to_domain())?);
+    }
+    app.replace_from_domain_cards(cards);
+    Ok(())
+}
