@@ -7,16 +7,15 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use ratatui::widgets::{Block, Borders};
 
 mod app;
+mod render;
 
 pub fn run_ui() -> Result<()> {
-    let _app = app::AppState::seeded();
+    let app = app::AppState::seeded();
     let mut terminal = init_terminal()?;
     terminal.draw(|frame| {
-        let area = frame.area();
-        frame.render_widget(Block::default().title("kanban").borders(Borders::ALL), area);
+        render::render_board(frame, &app);
     })?;
     restore_terminal(terminal)?;
     Ok(())
