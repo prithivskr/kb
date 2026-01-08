@@ -1,5 +1,7 @@
 use chrono::{Datelike, Duration, Local, NaiveDate, Weekday};
 
+use crate::domain::{Card, CardId, Column};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiColumn {
     Backlog,
@@ -42,10 +44,29 @@ impl UiColumn {
             _ => UiColumn::Done,
         }
     }
+
+    pub fn to_domain(self) -> Column {
+        match self {
+            UiColumn::Backlog => Column::Backlog,
+            UiColumn::ThisWeek => Column::ThisWeek,
+            UiColumn::Today => Column::Today,
+            UiColumn::Done => Column::Done,
+        }
+    }
+
+    pub fn from_domain(column: Column) -> Self {
+        match column {
+            Column::Backlog => UiColumn::Backlog,
+            Column::ThisWeek => UiColumn::ThisWeek,
+            Column::Today => UiColumn::Today,
+            Column::Done => UiColumn::Done,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct UiCard {
+    pub id: CardId,
     pub title: String,
     pub column: UiColumn,
     pub tags: Vec<String>,
@@ -75,6 +96,7 @@ impl AppState {
         Self {
             cards: vec![
                 UiCard {
+                    id: CardId::new(),
                     title: "Buy groceries".to_string(),
                     column: UiColumn::Backlog,
                     tags: vec!["life".to_string()],
@@ -82,6 +104,7 @@ impl AppState {
                     blocked: false,
                 },
                 UiCard {
+                    id: CardId::new(),
                     title: "Fix login bug".to_string(),
                     column: UiColumn::ThisWeek,
                     tags: vec!["work".to_string(), "p1".to_string()],
@@ -89,6 +112,7 @@ impl AppState {
                     blocked: true,
                 },
                 UiCard {
+                    id: CardId::new(),
                     title: "Write spec".to_string(),
                     column: UiColumn::Today,
                     tags: vec!["work".to_string()],
@@ -96,13 +120,42 @@ impl AppState {
                     blocked: false,
                 },
                 UiCard {
+                    id: CardId::new(),
                     title: "Update deps".to_string(),
                     column: UiColumn::Done,
                     tags: vec![],
                     due_date: None,
                     blocked: false,
                 },
+                UiCard {
+                    id: CardId::new(),
+                    title: "Update more deps".to_string(),
+                    column: UiColumn::Done,
+                    tags: vec![],
+                    due_date: None,
+                    blocked: false,
+                },
             ],
+            active_column: UiColumn::Today,
+            selected_by_column: [0, 0, 0, 0],
+        }
+    }
+
+    pub fn from_domain_cards(cards: Vec<Card>) -> Self {
+        let mapped = cards
+            .into_iter()
+            .map(|card| UiCard {
+                id: card.id,
+                title: card.title,
+                column: UiColumn::from_domain(card.column),
+                tags: card.tags,
+                due_date: card.due_date,
+                blocked: card.blocked,
+            })
+            .collect();
+
+        Self {
+            cards: mapped,
             active_column: UiColumn::Today,
             selected_by_column: [0, 0, 0, 0],
         }
@@ -129,7 +182,10 @@ impl AppState {
     }
 
     pub fn column_len(&self, column: UiColumn) -> usize {
-        self.cards.iter().filter(|card| card.column == column).count()
+        self.cards
+            .iter()
+            .filter(|card| card.column == column)
+            .count()
     }
 
     pub fn move_selection_down_active(&mut self) {
