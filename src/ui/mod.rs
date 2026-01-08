@@ -15,9 +15,9 @@ mod render;
 mod theme;
 
 pub fn run_ui() -> Result<()> {
-    let app = app::AppState::seeded();
+    let mut app = app::AppState::seeded();
     let mut terminal = init_terminal()?;
-    let result = run_event_loop(&mut terminal, &app);
+    let result = run_event_loop(&mut terminal, &mut app);
     restore_terminal(terminal)?;
     result
 }
@@ -41,7 +41,7 @@ fn restore_terminal(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<
 
 fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    app: &app::AppState,
+    app: &mut app::AppState,
 ) -> Result<()> {
     loop {
         terminal.draw(|frame| {
@@ -55,6 +55,16 @@ fn run_event_loop(
 
             match key.code {
                 KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                KeyCode::Char('h') | KeyCode::BackTab => {
+                    let current = app.active_column.to_index();
+                    let next = (current + 3) % app::UiColumn::ALL.len();
+                    app.active_column = app::UiColumn::from_index(next);
+                }
+                KeyCode::Char('l') | KeyCode::Tab => {
+                    let current = app.active_column.to_index();
+                    let next = (current + 1) % app::UiColumn::ALL.len();
+                    app.active_column = app::UiColumn::from_index(next);
+                }
                 _ => {}
             }
         }
