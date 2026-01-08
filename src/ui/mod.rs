@@ -10,7 +10,7 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
-use crate::repo::SqliteRepository;
+use crate::repo::{NewCard, SqliteRepository};
 use crate::storage::open_default_connection;
 
 mod app;
@@ -19,10 +19,10 @@ mod theme;
 
 pub fn run_ui() -> Result<()> {
     let conn = open_default_connection()?;
-    let repo = SqliteRepository::new(conn)?;
+    let mut repo = SqliteRepository::new(conn)?;
     let mut app = load_board_state(&repo)?;
     let mut terminal = init_terminal()?;
-    let result = run_event_loop(&mut terminal, &mut app);
+    let result = run_event_loop(&mut terminal, &mut app, &mut repo);
     restore_terminal(terminal)?;
     result
 }
@@ -47,6 +47,7 @@ fn restore_terminal(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<
 fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut app::AppState,
+    repo: &mut SqliteRepository,
 ) -> Result<()> {
     loop {
         terminal.draw(|frame| {
@@ -57,6 +58,10 @@ fn run_event_loop(
             let Event::Key(key) = event::read()? else {
                 continue;
             };
+            if matches!(key.code, KeyCode::Char('a')) {
+                handle_insert(repo, app)?;
+                continue;
+            }
             let action = map_key_to_action(key);
             if app.apply_action(action) {
                 return Ok(());
@@ -90,5 +95,20 @@ fn reload_board_state(repo: &SqliteRepository, app: &mut app::AppState) -> Resul
         cards.extend(repo.list_cards_in_column(column.to_domain())?);
     }
     app.replace_from_domain_cards(cards);
+    Ok(())
+}
+
+fn handle_insert(repo: &mut SqliteRepository, app: &mut app::AppState) -> Result<()> {
+    let column = app.active_column;
+    let input = NewCard {
+        title: "New Task".to_string(),
+        notes: None,
+        column: column.to_domain(),
+        position: i64::try_from(app.column_len(column)).expect("column length should fit i64"),
+        due_date: None,
+        recurrence: None,
+    };
+    repo.create_card(input)?;
+    reload_board_state(repo, app)?;
     Ok(())
 }
