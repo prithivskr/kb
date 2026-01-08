@@ -122,6 +122,30 @@ impl AppState {
         self.cards.iter().filter(|card| card.column == column).count()
     }
 
+    pub fn move_selection_down_active(&mut self) {
+        let column = self.active_column;
+        let len = self.column_len(column);
+        if len == 0 {
+            return;
+        }
+
+        let current = self.selected_index(column);
+        let next = (current + 1).min(len - 1);
+        self.set_selected_index(column, next);
+    }
+
+    pub fn move_selection_up_active(&mut self) {
+        let column = self.active_column;
+        let len = self.column_len(column);
+        if len == 0 {
+            return;
+        }
+
+        let current = self.selected_index(column);
+        let next = current.saturating_sub(1);
+        self.set_selected_index(column, next);
+    }
+
     pub fn week_range_label(&self) -> String {
         let today = Local::now().date_naive();
         let offset = i64::from(weekday_from_monday(today.weekday()) - 1);

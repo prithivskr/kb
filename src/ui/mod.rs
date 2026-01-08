@@ -65,6 +65,8 @@ fn run_event_loop(
                     let next = (current + 1) % app::UiColumn::ALL.len();
                     app.active_column = app::UiColumn::from_index(next);
                 }
+                KeyCode::Char('j') => app.move_selection_down_active(),
+                KeyCode::Char('k') => app.move_selection_up_active(),
                 _ => {}
             }
         }
