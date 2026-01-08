@@ -77,4 +77,8 @@ impl AppState {
             active_column: UiColumn::Today,
         }
     }
+
+    pub fn cards_in_column(&self, column: UiColumn) -> Vec<&UiCard> {
+        self.cards.iter().filter(|card| card.column == column).collect()
+    }
 }
