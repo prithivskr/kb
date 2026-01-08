@@ -1,9 +1,9 @@
 use chrono::{Duration, Local, NaiveDate};
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Padding, Paragraph};
 
 use crate::ui::app::{AppState, UiColumn};
 use crate::ui::theme;
@@ -19,22 +19,7 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
     .split(layout[0]);
 
     for (index, column) in UiColumn::ALL.iter().enumerate() {
-        let today = Local::now().date_naive();
         let cards = app.cards_in_column(*column);
-        let items = cards
-            .into_iter()
-            .map(|card| {
-                let due = card
-                    .due_date
-                    .map(|d| format!(" ({})", d.format("%b %-d")))
-                    .unwrap_or_default();
-                let blocked = if card.blocked { "! " } else { "" };
-                let tag_hint = if card.tags.is_empty() { "" } else { " #" };
-                let line = format!("{blocked}{}{due}{tag_hint}", card.title);
-                let style = due_date_style(card.due_date, today);
-                ListItem::new(Line::from(line)).style(style)
-            })
-            .collect::<Vec<_>>();
 
         let border_style = if *column == app.active_column {
             Style::default().fg(theme::ACTIVE_BORDER)
@@ -46,8 +31,8 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
             .borders(Borders::ALL)
             .style(Style::default().fg(theme::FG).bg(theme::BG))
             .border_style(border_style);
-        let list = List::new(items).block(block);
-        frame.render_widget(list, board_chunks[index]);
+        frame.render_widget(block, board_chunks[index]);
+        render_cards_in_column(frame, board_chunks[index], cards);
     }
 
     let status = format!(
@@ -66,5 +51,51 @@ fn due_date_style(due_date: Option<NaiveDate>, today: NaiveDate) -> Style {
         Some(due) if due == today => base.fg(theme::DUE_TODAY),
         Some(due) if due <= today + Duration::days(7) => base.fg(theme::DUE_SOON),
         _ => base,
+    }
+}
+
+fn render_cards_in_column(frame: &mut Frame<'_>, area: Rect, cards: Vec<&crate::ui::app::UiCard>) {
+    let today = Local::now().date_naive();
+    let inner = area.inner(ratatui::layout::Margin {
+        vertical: 1,
+        horizontal: 1,
+    });
+    let mut y = inner.y;
+
+    for card in cards {
+        let card_height = 4;
+        if y.saturating_add(card_height) > inner.y.saturating_add(inner.height) {
+            break;
+        }
+
+        let due_text = card
+            .due_date
+            .map(|date| format!("Due {}", date.format("%b %-d")))
+            .unwrap_or_else(|| "No due date".to_string());
+        let tag_text = if card.tags.is_empty() {
+            "No tags".to_string()
+        } else {
+            format!("#{}", card.tags.join(" #"))
+        };
+        let title = if card.blocked {
+            format!("! {}", card.title)
+        } else {
+            card.title.clone()
+        };
+
+        let card_area = Rect::new(inner.x, y, inner.width, card_height);
+        let card_widget = Paragraph::new(vec![
+            Line::from(title).style(due_date_style(card.due_date, today)),
+            Line::from(format!("{due_text}  {tag_text}")),
+        ])
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .padding(Padding::horizontal(1))
+                .border_style(Style::default().fg(theme::BORDER)),
+        )
+        .style(Style::default().fg(theme::FG).bg(theme::BG));
+        frame.render_widget(card_widget, card_area);
+        y = y.saturating_add(card_height);
     }
 }

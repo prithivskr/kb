@@ -79,7 +79,10 @@ impl AppState {
     }
 
     pub fn cards_in_column(&self, column: UiColumn) -> Vec<&UiCard> {
-        self.cards.iter().filter(|card| card.column == column).collect()
+        self.cards
+            .iter()
+            .filter(|card| card.column == column)
+            .collect()
     }
 
     pub fn today_wip_count(&self) -> usize {
