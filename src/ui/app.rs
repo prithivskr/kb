@@ -24,6 +24,24 @@ impl UiColumn {
             UiColumn::Done => "Done",
         }
     }
+
+    pub fn to_index(self) -> usize {
+        match self {
+            UiColumn::Backlog => 0,
+            UiColumn::ThisWeek => 1,
+            UiColumn::Today => 2,
+            UiColumn::Done => 3,
+        }
+    }
+
+    pub fn from_index(index: usize) -> Self {
+        match index {
+            0 => UiColumn::Backlog,
+            1 => UiColumn::ThisWeek,
+            2 => UiColumn::Today,
+            _ => UiColumn::Done,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +57,7 @@ pub struct UiCard {
 pub struct AppState {
     pub cards: Vec<UiCard>,
     pub active_column: UiColumn,
+    pub selected_by_column: [usize; 4],
 }
 
 impl AppState {
@@ -75,6 +94,7 @@ impl AppState {
                 },
             ],
             active_column: UiColumn::Today,
+            selected_by_column: [0, 0, 0, 0],
         }
     }
 
@@ -87,6 +107,19 @@ impl AppState {
 
     pub fn today_wip_count(&self) -> usize {
         self.cards_in_column(UiColumn::Today).len()
+    }
+
+    pub fn selected_index(&self, column: UiColumn) -> usize {
+        self.selected_by_column[column.to_index()]
+    }
+
+    pub fn set_selected_index(&mut self, column: UiColumn, index: usize) {
+        let idx = column.to_index();
+        self.selected_by_column[idx] = index;
+    }
+
+    pub fn column_len(&self, column: UiColumn) -> usize {
+        self.cards.iter().filter(|card| card.column == column).count()
     }
 
     pub fn week_range_label(&self) -> String {
