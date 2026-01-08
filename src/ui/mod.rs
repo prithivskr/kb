@@ -62,6 +62,14 @@ fn run_event_loop(
                 handle_insert(repo, app)?;
                 continue;
             }
+            if matches!(key.code, KeyCode::Char('H')) {
+                handle_move(repo, app, MoveDirection::Left)?;
+                continue;
+            }
+            if matches!(key.code, KeyCode::Char('L')) {
+                handle_move(repo, app, MoveDirection::Right)?;
+                continue;
+            }
             let action = map_key_to_action(key);
             if app.apply_action(action) {
                 return Ok(());
@@ -111,4 +119,42 @@ fn handle_insert(repo: &mut SqliteRepository, app: &mut app::AppState) -> Result
     repo.create_card(input)?;
     reload_board_state(repo, app)?;
     Ok(())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MoveDirection {
+    Left,
+    Right,
+}
+
+fn handle_move(repo: &mut SqliteRepository, app: &mut app::AppState, direction: MoveDirection) -> Result<()> {
+    let Some(card_id) = app.selected_card_id_active() else {
+        return Ok(());
+    };
+
+    let current = app.active_column;
+    let Some(target) = adjacent_column(current, direction) else {
+        return Ok(());
+    };
+
+    let target_position =
+        i64::try_from(app.column_len(target)).expect("column length should fit i64");
+    if target == app::UiColumn::Done && current != app::UiColumn::Done {
+        repo.complete_card(card_id, target_position)?;
+    } else {
+        repo.move_card(card_id, target.to_domain(), target_position)?;
+    }
+
+    app.active_column = target;
+    reload_board_state(repo, app)?;
+    Ok(())
+}
+
+fn adjacent_column(column: app::UiColumn, direction: MoveDirection) -> Option<app::UiColumn> {
+    match (column, direction) {
+        (app::UiColumn::Backlog, MoveDirection::Left) => None,
+        (app::UiColumn::Done, MoveDirection::Right) => None,
+        (col, MoveDirection::Left) => Some(app::UiColumn::from_index(col.to_index() - 1)),
+        (col, MoveDirection::Right) => Some(app::UiColumn::from_index(col.to_index() + 1)),
+    }
 }
