@@ -1,4 +1,4 @@
-use chrono::NaiveDate;
+use chrono::{Datelike, Duration, Local, NaiveDate, Weekday};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiColumn {
@@ -80,5 +80,34 @@ impl AppState {
 
     pub fn cards_in_column(&self, column: UiColumn) -> Vec<&UiCard> {
         self.cards.iter().filter(|card| card.column == column).collect()
+    }
+
+    pub fn today_wip_count(&self) -> usize {
+        self.cards_in_column(UiColumn::Today).len()
+    }
+
+    pub fn week_range_label(&self) -> String {
+        let today = Local::now().date_naive();
+        let offset = i64::from(weekday_from_monday(today.weekday()) - 1);
+        let week_start = today - Duration::days(offset);
+        let week_end = week_start + Duration::days(6);
+        format!(
+            "{}-{}, {}",
+            week_start.format("%b %-d"),
+            week_end.format("%b %-d"),
+            week_start.year()
+        )
+    }
+}
+
+fn weekday_from_monday(day: Weekday) -> u32 {
+    match day {
+        Weekday::Mon => 1,
+        Weekday::Tue => 2,
+        Weekday::Wed => 3,
+        Weekday::Thu => 4,
+        Weekday::Fri => 5,
+        Weekday::Sat => 6,
+        Weekday::Sun => 7,
     }
 }
