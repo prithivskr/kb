@@ -10,6 +10,7 @@ use ratatui::backend::CrosstermBackend;
 
 mod app;
 mod render;
+mod theme;
 
 pub fn run_ui() -> Result<()> {
     let app = app::AppState::seeded();
