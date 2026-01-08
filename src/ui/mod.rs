@@ -1,6 +1,8 @@
 use std::io::{self, Stdout};
+use std::time::Duration;
 
 use anyhow::Result;
+use crossterm::event::{self, Event, KeyCode};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -15,11 +17,9 @@ mod theme;
 pub fn run_ui() -> Result<()> {
     let app = app::AppState::seeded();
     let mut terminal = init_terminal()?;
-    terminal.draw(|frame| {
-        render::render_board(frame, &app);
-    })?;
+    let result = run_event_loop(&mut terminal, &app);
     restore_terminal(terminal)?;
-    Ok(())
+    result
 }
 
 fn init_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
@@ -37,4 +37,26 @@ fn restore_terminal(mut terminal: Terminal<CrosstermBackend<Stdout>>) -> Result<
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     terminal.show_cursor()?;
     Ok(())
+}
+
+fn run_event_loop(
+    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    app: &app::AppState,
+) -> Result<()> {
+    loop {
+        terminal.draw(|frame| {
+            render::render_board(frame, app);
+        })?;
+
+        if event::poll(Duration::from_millis(200))? {
+            let Event::Key(key) = event::read()? else {
+                continue;
+            };
+
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                _ => {}
+            }
+        }
+    }
 }
