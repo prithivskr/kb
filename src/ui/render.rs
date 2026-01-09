@@ -41,19 +41,22 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
         );
     }
 
-    let status = format!(
-        "[/] search  [t] tags  [?] help  [a] add-end [i] add-below [dd] delete [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end [R] reload  |  Today: {}/3  |  week: {}{}{}",
-        app.today_wip_count(),
-        app.week_range_label(),
-        if let Some(prompt) = app.insert_prompt_line() {
-            format!("  |  {prompt}  (Enter save, Esc cancel)")
-        } else if let Some(msg) = &app.status_message {
-            format!("  |  {msg}")
-        } else {
-            String::new()
-        },
-        if app.is_empty() { "  |  board is empty" } else { "" }
-    );
+    let status = if let Some(prompt) = app.insert_prompt_line() {
+        format!("{prompt}  (Enter save, Esc cancel)")
+    } else {
+        format!(
+            "[/] search  [t] tags  [?] help  [a] add-end [i] add-below [dd] delete [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end [R] reload  |  Today: {}/3  |  week: {}{}{}",
+            app.today_wip_count(),
+            app.week_range_label(),
+            if let Some(msg) = &app.status_message {
+                format!("  |  {msg}")
+            } else {
+                String::new()
+            },
+            if app.is_empty() { "  |  board is empty" } else { "" }
+        )
+    };
+    let status = truncate_for_width(&status, usize::from(layout[1].width));
     let status_bar = Paragraph::new(status).style(Style::default().fg(theme::FG).bg(theme::BG));
     frame.render_widget(status_bar, layout[1]);
 }
@@ -156,4 +159,21 @@ fn render_cards_in_column(
         frame.render_widget(card_widget, card_area);
         y = y.saturating_add(card_height);
     }
+}
+
+fn truncate_for_width(input: &str, width: usize) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let count = input.chars().count();
+    if count <= width {
+        return input.to_string();
+    }
+    if width <= 1 {
+        return "…".to_string();
+    }
+    let keep = width - 1;
+    let mut out = input.chars().take(keep).collect::<String>();
+    out.push('…');
+    out
 }
