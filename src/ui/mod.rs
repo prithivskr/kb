@@ -64,7 +64,7 @@ fn run_event_loop(
             }
             match handle_action(action, app, repo) {
                 Ok(should_quit) if should_quit => return Ok(()),
-                Ok(_) => app.clear_status_message(),
+                Ok(_) => {}
                 Err(err) => app.set_status_message(format!("error: {err}")),
             }
         }
@@ -74,22 +74,36 @@ fn run_event_loop(
 fn handle_action(action: app::UiAction, app: &mut app::AppState, repo: &mut SqliteRepository) -> Result<bool> {
     match action {
         app::UiAction::Insert => {
+            app.disarm_delete();
+            app.clear_status_message();
             handle_insert(repo, app)?;
             Ok(false)
         }
         app::UiAction::MoveLeft => {
+            app.disarm_delete();
+            app.clear_status_message();
             handle_move(repo, app, MoveDirection::Left)?;
             Ok(false)
         }
         app::UiAction::MoveRight => {
+            app.disarm_delete();
+            app.clear_status_message();
             handle_move(repo, app, MoveDirection::Right)?;
             Ok(false)
         }
         app::UiAction::Reload => {
+            app.disarm_delete();
+            app.clear_status_message();
             reload_board_state(repo, app)?;
             Ok(false)
         }
+        app::UiAction::DeletePress => {
+            handle_delete_press(repo, app)?;
+            Ok(false)
+        }
         _ => {
+            app.disarm_delete();
+            app.clear_status_message();
             if app.apply_action(action) {
                 return Ok(true);
             }
@@ -105,6 +119,7 @@ fn map_key_to_action(key: KeyEvent) -> app::UiAction {
         KeyCode::Char('H') => app::UiAction::MoveLeft,
         KeyCode::Char('L') => app::UiAction::MoveRight,
         KeyCode::Char('R') => app::UiAction::Reload,
+        KeyCode::Char('d') => app::UiAction::DeletePress,
         KeyCode::Char('h') | KeyCode::BackTab => app::UiAction::ColumnPrev,
         KeyCode::Char('l') | KeyCode::Tab => app::UiAction::ColumnNext,
         KeyCode::Char('j') => app::UiAction::CursorDown,
@@ -181,4 +196,22 @@ fn adjacent_column(column: app::UiColumn, direction: MoveDirection) -> Option<ap
         (col, MoveDirection::Left) => Some(app::UiColumn::from_index(col.to_index() - 1)),
         (col, MoveDirection::Right) => Some(app::UiColumn::from_index(col.to_index() + 1)),
     }
+}
+
+fn handle_delete_press(repo: &mut SqliteRepository, app: &mut app::AppState) -> Result<()> {
+    if !app.delete_armed {
+        app.arm_delete();
+        app.set_status_message("press d again to delete selected card");
+        return Ok(());
+    }
+
+    app.disarm_delete();
+    let Some(card_id) = app.selected_card_id_active() else {
+        app.set_status_message("no selected card to delete");
+        return Ok(());
+    };
+    repo.delete_card(card_id)?;
+    app.clear_status_message();
+    reload_board_state(repo, app)?;
+    Ok(())
 }

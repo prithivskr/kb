@@ -80,6 +80,7 @@ pub struct AppState {
     pub active_column: UiColumn,
     pub selected_by_column: [usize; 4],
     pub status_message: Option<String>,
+    pub delete_armed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,6 +94,7 @@ pub enum UiAction {
     MoveLeft,
     MoveRight,
     Reload,
+    DeletePress,
     None,
 }
 
@@ -105,6 +107,7 @@ impl AppState {
             active_column: UiColumn::Today,
             selected_by_column: [0, 0, 0, 0],
             status_message: None,
+            delete_armed: false,
         }
     }
 
@@ -183,6 +186,7 @@ impl AppState {
                 false
             }
             UiAction::Insert | UiAction::MoveLeft | UiAction::MoveRight | UiAction::Reload => false,
+            UiAction::DeletePress => false,
             UiAction::None => false,
         }
     }
@@ -235,6 +239,14 @@ impl AppState {
 
     pub fn clear_status_message(&mut self) {
         self.status_message = None;
+    }
+
+    pub fn arm_delete(&mut self) {
+        self.delete_armed = true;
+    }
+
+    pub fn disarm_delete(&mut self) {
+        self.delete_armed = false;
     }
 }
 
