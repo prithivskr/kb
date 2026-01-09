@@ -78,6 +78,21 @@ fn render_cards_in_column(
         vertical: 1,
         horizontal: 1,
     });
+    let card_height: u16 = 4;
+    let visible_slots = usize::from(inner.height / card_height);
+    if visible_slots == 0 {
+        return;
+    }
+
+    let total_cards = cards.len();
+    let clamped_selected = selected_index.min(total_cards.saturating_sub(1));
+    let start_index = if is_active_column {
+        clamped_selected.saturating_sub(visible_slots.saturating_sub(1))
+    } else {
+        0
+    };
+    let end_index = (start_index + visible_slots).min(total_cards);
+
     let mut y = inner.y;
     if cards.is_empty() {
         let empty = Paragraph::new("No cards")
@@ -87,8 +102,12 @@ fn render_cards_in_column(
         return;
     }
 
-    for (index, card) in cards.into_iter().enumerate() {
-        let card_height = 4;
+    for (index, card) in cards
+        .into_iter()
+        .enumerate()
+        .skip(start_index)
+        .take(end_index - start_index)
+    {
         if y.saturating_add(card_height) > inner.y.saturating_add(inner.height) {
             break;
         }
