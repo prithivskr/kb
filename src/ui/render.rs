@@ -45,7 +45,9 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
         "[/] search  [t] tags  [?] help  [a] add-end [i] add-below [dd] delete [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end [R] reload  |  Today: {}/3  |  week: {}{}{}",
         app.today_wip_count(),
         app.week_range_label(),
-        if let Some(msg) = &app.status_message {
+        if let Some(prompt) = app.insert_prompt_line() {
+            format!("  |  {prompt}  (Enter save, Esc cancel)")
+        } else if let Some(msg) = &app.status_message {
             format!("  |  {msg}")
         } else {
             String::new()

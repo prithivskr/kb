@@ -81,6 +81,19 @@ pub struct AppState {
     pub selected_by_column: [usize; 4],
     pub status_message: Option<String>,
     pub delete_armed: bool,
+    pub insert_prompt: Option<InsertPromptState>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InsertPlacement {
+    End,
+    BelowSelection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InsertPromptState {
+    pub placement: InsertPlacement,
+    pub buffer: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,6 +130,7 @@ impl AppState {
             selected_by_column: [0, 0, 0, 0],
             status_message: None,
             delete_armed: false,
+            insert_prompt: None,
         }
     }
 
@@ -268,6 +282,48 @@ impl AppState {
 
     pub fn disarm_delete(&mut self) {
         self.delete_armed = false;
+    }
+
+    pub fn start_insert_prompt(&mut self, placement: InsertPlacement) {
+        self.insert_prompt = Some(InsertPromptState {
+            placement,
+            buffer: String::new(),
+        });
+    }
+
+    pub fn cancel_insert_prompt(&mut self) {
+        self.insert_prompt = None;
+    }
+
+    pub fn has_insert_prompt(&self) -> bool {
+        self.insert_prompt.is_some()
+    }
+
+    pub fn push_insert_char(&mut self, ch: char) {
+        if let Some(prompt) = &mut self.insert_prompt {
+            prompt.buffer.push(ch);
+        }
+    }
+
+    pub fn pop_insert_char(&mut self) {
+        if let Some(prompt) = &mut self.insert_prompt {
+            prompt.buffer.pop();
+        }
+    }
+
+    pub fn submit_insert_prompt(&mut self) -> Option<(InsertPlacement, String)> {
+        let prompt = self.insert_prompt.take()?;
+        let title = prompt.buffer.trim().to_string();
+        Some((prompt.placement, title))
+    }
+
+    pub fn insert_prompt_line(&self) -> Option<String> {
+        let prompt = self.insert_prompt.as_ref()?;
+        let mode = match prompt.placement {
+            InsertPlacement::End => "add-end",
+            InsertPlacement::BelowSelection => "add-below",
+        };
+        Some(format!("{} title: {}_", mode, prompt.buffer))
     }
 
     pub fn jump_to_column(&mut self, column: UiColumn) {

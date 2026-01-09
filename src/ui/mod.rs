@@ -59,6 +59,12 @@ fn run_event_loop(
             let Event::Key(key) = event::read()? else {
                 continue;
             };
+
+            if app.has_insert_prompt() {
+                handle_insert_prompt_key(key, app, repo)?;
+                continue;
+            }
+
             let action = map_key_to_action(key, &mut pending_g);
             if action == app::UiAction::None {
                 continue;
@@ -77,13 +83,13 @@ fn handle_action(action: app::UiAction, app: &mut app::AppState, repo: &mut Sqli
         app::UiAction::Insert => {
             app.disarm_delete();
             app.clear_status_message();
-            handle_insert(repo, app)?;
+            app.start_insert_prompt(app::InsertPlacement::End);
             Ok(false)
         }
         app::UiAction::InsertBelow => {
             app.disarm_delete();
             app.clear_status_message();
-            handle_insert_below(repo, app)?;
+            app.start_insert_prompt(app::InsertPlacement::BelowSelection);
             Ok(false)
         }
         app::UiAction::MoveLeft => {
@@ -218,10 +224,10 @@ fn reload_board_state(repo: &SqliteRepository, app: &mut app::AppState) -> Resul
     Ok(())
 }
 
-fn handle_insert(repo: &mut SqliteRepository, app: &mut app::AppState) -> Result<()> {
+fn handle_insert_with_title(repo: &mut SqliteRepository, app: &mut app::AppState, title: &str) -> Result<()> {
     let column = app.active_column;
     let input = NewCard {
-        title: "New Task".to_string(),
+        title: title.to_string(),
         notes: None,
         column: column.to_domain(),
         position: i64::try_from(app.column_len(column)).expect("column length should fit i64"),
@@ -233,13 +239,17 @@ fn handle_insert(repo: &mut SqliteRepository, app: &mut app::AppState) -> Result
     Ok(())
 }
 
-fn handle_insert_below(repo: &mut SqliteRepository, app: &mut app::AppState) -> Result<()> {
+fn handle_insert_below_with_title(
+    repo: &mut SqliteRepository,
+    app: &mut app::AppState,
+    title: &str,
+) -> Result<()> {
     let column = app.active_column;
     let len = app.column_len(column);
     let selected = app.selected_index(column);
     let target = if len == 0 { 0 } else { (selected + 1).min(len) };
     let input = NewCard {
-        title: "New Task".to_string(),
+        title: title.to_string(),
         notes: None,
         column: column.to_domain(),
         position: i64::try_from(target).expect("target position should fit i64"),
@@ -340,5 +350,45 @@ fn handle_delete_press(repo: &mut SqliteRepository, app: &mut app::AppState) -> 
     repo.delete_card(card_id)?;
     app.clear_status_message();
     reload_board_state(repo, app)?;
+    Ok(())
+}
+
+fn handle_insert_prompt_key(
+    key: KeyEvent,
+    app: &mut app::AppState,
+    repo: &mut SqliteRepository,
+) -> Result<()> {
+    match key.code {
+        KeyCode::Esc => {
+            app.cancel_insert_prompt();
+            app.set_status_message("insert canceled");
+        }
+        KeyCode::Backspace => {
+            app.pop_insert_char();
+        }
+        KeyCode::Enter => {
+            let Some((placement, title)) = app.submit_insert_prompt() else {
+                return Ok(());
+            };
+            if title.is_empty() {
+                app.start_insert_prompt(placement);
+                app.set_status_message("title cannot be empty");
+                return Ok(());
+            }
+            app.clear_status_message();
+            match placement {
+                app::InsertPlacement::End => handle_insert_with_title(repo, app, &title)?,
+                app::InsertPlacement::BelowSelection => {
+                    handle_insert_below_with_title(repo, app, &title)?
+                }
+            }
+        }
+        KeyCode::Char(ch) => {
+            if !ch.is_control() {
+                app.push_insert_char(ch);
+            }
+        }
+        _ => {}
+    }
     Ok(())
 }
