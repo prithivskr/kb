@@ -97,6 +97,12 @@ pub enum UiAction {
     ReorderDown,
     Reload,
     DeletePress,
+    JumpBacklog,
+    JumpThisWeek,
+    JumpToday,
+    JumpDone,
+    JumpTop,
+    JumpBottom,
     None,
 }
 
@@ -194,6 +200,12 @@ impl AppState {
             | UiAction::ReorderDown
             | UiAction::Reload => false,
             UiAction::DeletePress => false,
+            UiAction::JumpBacklog
+            | UiAction::JumpThisWeek
+            | UiAction::JumpToday
+            | UiAction::JumpDone
+            | UiAction::JumpTop
+            | UiAction::JumpBottom => false,
             UiAction::None => false,
         }
     }
@@ -254,6 +266,23 @@ impl AppState {
 
     pub fn disarm_delete(&mut self) {
         self.delete_armed = false;
+    }
+
+    pub fn jump_to_column(&mut self, column: UiColumn) {
+        self.active_column = column;
+    }
+
+    pub fn jump_top_active(&mut self) {
+        self.set_selected_index(self.active_column, 0);
+    }
+
+    pub fn jump_bottom_active(&mut self) {
+        let len = self.column_len(self.active_column);
+        if len == 0 {
+            self.set_selected_index(self.active_column, 0);
+            return;
+        }
+        self.set_selected_index(self.active_column, len - 1);
     }
 }
 

@@ -49,6 +49,7 @@ fn run_event_loop(
     app: &mut app::AppState,
     repo: &mut SqliteRepository,
 ) -> Result<()> {
+    let mut pending_g = false;
     loop {
         terminal.draw(|frame| {
             render::render_board(frame, app);
@@ -58,7 +59,7 @@ fn run_event_loop(
             let Event::Key(key) = event::read()? else {
                 continue;
             };
-            let action = map_key_to_action(key);
+            let action = map_key_to_action(key, &mut pending_g);
             if action == app::UiAction::None {
                 continue;
             }
@@ -113,6 +114,42 @@ fn handle_action(action: app::UiAction, app: &mut app::AppState, repo: &mut Sqli
             handle_delete_press(repo, app)?;
             Ok(false)
         }
+        app::UiAction::JumpBacklog => {
+            app.disarm_delete();
+            app.clear_status_message();
+            app.jump_to_column(app::UiColumn::Backlog);
+            Ok(false)
+        }
+        app::UiAction::JumpThisWeek => {
+            app.disarm_delete();
+            app.clear_status_message();
+            app.jump_to_column(app::UiColumn::ThisWeek);
+            Ok(false)
+        }
+        app::UiAction::JumpToday => {
+            app.disarm_delete();
+            app.clear_status_message();
+            app.jump_to_column(app::UiColumn::Today);
+            Ok(false)
+        }
+        app::UiAction::JumpDone => {
+            app.disarm_delete();
+            app.clear_status_message();
+            app.jump_to_column(app::UiColumn::Done);
+            Ok(false)
+        }
+        app::UiAction::JumpTop => {
+            app.disarm_delete();
+            app.clear_status_message();
+            app.jump_top_active();
+            Ok(false)
+        }
+        app::UiAction::JumpBottom => {
+            app.disarm_delete();
+            app.clear_status_message();
+            app.jump_bottom_active();
+            Ok(false)
+        }
         _ => {
             app.disarm_delete();
             app.clear_status_message();
@@ -124,7 +161,17 @@ fn handle_action(action: app::UiAction, app: &mut app::AppState, repo: &mut Sqli
     }
 }
 
-fn map_key_to_action(key: KeyEvent) -> app::UiAction {
+fn map_key_to_action(key: KeyEvent, pending_g: &mut bool) -> app::UiAction {
+    if matches!(key.code, KeyCode::Char('g')) {
+        if *pending_g {
+            *pending_g = false;
+            return app::UiAction::JumpTop;
+        }
+        *pending_g = true;
+        return app::UiAction::None;
+    }
+
+    *pending_g = false;
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => app::UiAction::Quit,
         KeyCode::Char('a') => app::UiAction::Insert,
@@ -132,6 +179,11 @@ fn map_key_to_action(key: KeyEvent) -> app::UiAction {
         KeyCode::Char('L') => app::UiAction::MoveRight,
         KeyCode::Char('K') => app::UiAction::ReorderUp,
         KeyCode::Char('J') => app::UiAction::ReorderDown,
+        KeyCode::Char('1') => app::UiAction::JumpBacklog,
+        KeyCode::Char('2') => app::UiAction::JumpThisWeek,
+        KeyCode::Char('3') => app::UiAction::JumpToday,
+        KeyCode::Char('4') => app::UiAction::JumpDone,
+        KeyCode::Char('G') => app::UiAction::JumpBottom,
         KeyCode::Char('R') => app::UiAction::Reload,
         KeyCode::Char('d') => app::UiAction::DeletePress,
         KeyCode::Char('h') | KeyCode::BackTab => app::UiAction::ColumnPrev,
