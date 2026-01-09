@@ -266,6 +266,10 @@ impl AppState {
             week_start.year()
         )
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.cards.is_empty()
+    }
 }
 
 fn map_domain_cards(cards: Vec<Card>) -> Vec<UiCard> {

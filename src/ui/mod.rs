@@ -70,6 +70,10 @@ fn run_event_loop(
                 handle_move(repo, app, MoveDirection::Right)?;
                 continue;
             }
+            if matches!(key.code, KeyCode::Char('R')) {
+                reload_board_state(repo, app)?;
+                continue;
+            }
             let action = map_key_to_action(key);
             if app.apply_action(action) {
                 return Ok(());

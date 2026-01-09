@@ -42,9 +42,10 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
     }
 
     let status = format!(
-        "[/] search  [t] tags  [?] help  |  Today: {}/3  |  week: {}",
+        "[/] search  [t] tags  [?] help  |  Today: {}/3  |  week: {}{}",
         app.today_wip_count(),
-        app.week_range_label()
+        app.week_range_label(),
+        if app.is_empty() { "  |  board is empty" } else { "" }
     );
     let status_bar = Paragraph::new(status).style(Style::default().fg(theme::FG).bg(theme::BG));
     frame.render_widget(status_bar, layout[1]);
@@ -73,6 +74,13 @@ fn render_cards_in_column(
         horizontal: 1,
     });
     let mut y = inner.y;
+    if cards.is_empty() {
+        let empty = Paragraph::new("No cards")
+            .style(Style::default().fg(theme::BORDER).bg(theme::BG))
+            .block(Block::default().padding(Padding::horizontal(1)));
+        frame.render_widget(empty, inner);
+        return;
+    }
 
     for (index, card) in cards.into_iter().enumerate() {
         let card_height = 4;
