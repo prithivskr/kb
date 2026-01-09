@@ -93,6 +93,8 @@ pub enum UiAction {
     Insert,
     MoveLeft,
     MoveRight,
+    ReorderUp,
+    ReorderDown,
     Reload,
     DeletePress,
     None,
@@ -185,7 +187,12 @@ impl AppState {
                 self.move_selection_down_active();
                 false
             }
-            UiAction::Insert | UiAction::MoveLeft | UiAction::MoveRight | UiAction::Reload => false,
+            UiAction::Insert
+            | UiAction::MoveLeft
+            | UiAction::MoveRight
+            | UiAction::ReorderUp
+            | UiAction::ReorderDown
+            | UiAction::Reload => false,
             UiAction::DeletePress => false,
             UiAction::None => false,
         }

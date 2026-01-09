@@ -91,6 +91,18 @@ fn handle_action(action: app::UiAction, app: &mut app::AppState, repo: &mut Sqli
             handle_move(repo, app, MoveDirection::Right)?;
             Ok(false)
         }
+        app::UiAction::ReorderUp => {
+            app.disarm_delete();
+            app.clear_status_message();
+            handle_reorder(repo, app, ReorderDirection::Up)?;
+            Ok(false)
+        }
+        app::UiAction::ReorderDown => {
+            app.disarm_delete();
+            app.clear_status_message();
+            handle_reorder(repo, app, ReorderDirection::Down)?;
+            Ok(false)
+        }
         app::UiAction::Reload => {
             app.disarm_delete();
             app.clear_status_message();
@@ -118,6 +130,8 @@ fn map_key_to_action(key: KeyEvent) -> app::UiAction {
         KeyCode::Char('a') => app::UiAction::Insert,
         KeyCode::Char('H') => app::UiAction::MoveLeft,
         KeyCode::Char('L') => app::UiAction::MoveRight,
+        KeyCode::Char('K') => app::UiAction::ReorderUp,
+        KeyCode::Char('J') => app::UiAction::ReorderDown,
         KeyCode::Char('R') => app::UiAction::Reload,
         KeyCode::Char('d') => app::UiAction::DeletePress,
         KeyCode::Char('h') | KeyCode::BackTab => app::UiAction::ColumnPrev,
@@ -166,6 +180,12 @@ enum MoveDirection {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReorderDirection {
+    Up,
+    Down,
+}
+
 fn handle_move(repo: &mut SqliteRepository, app: &mut app::AppState, direction: MoveDirection) -> Result<()> {
     let Some(card_id) = app.selected_card_id_active() else {
         return Ok(());
@@ -196,6 +216,35 @@ fn adjacent_column(column: app::UiColumn, direction: MoveDirection) -> Option<ap
         (col, MoveDirection::Left) => Some(app::UiColumn::from_index(col.to_index() - 1)),
         (col, MoveDirection::Right) => Some(app::UiColumn::from_index(col.to_index() + 1)),
     }
+}
+
+fn handle_reorder(repo: &mut SqliteRepository, app: &mut app::AppState, direction: ReorderDirection) -> Result<()> {
+    let column = app.active_column;
+    let len = app.column_len(column);
+    if len < 2 {
+        return Ok(());
+    }
+    let Some(card_id) = app.selected_card_id_active() else {
+        return Ok(());
+    };
+
+    let current = app.selected_index(column);
+    let target = match direction {
+        ReorderDirection::Up => current.saturating_sub(1),
+        ReorderDirection::Down => (current + 1).min(len - 1),
+    };
+    if target == current {
+        return Ok(());
+    }
+
+    repo.move_card(
+        card_id,
+        column.to_domain(),
+        i64::try_from(target).expect("selection index should fit i64"),
+    )?;
+    app.set_selected_index(column, target);
+    reload_board_state(repo, app)?;
+    Ok(())
 }
 
 fn handle_delete_press(repo: &mut SqliteRepository, app: &mut app::AppState) -> Result<()> {

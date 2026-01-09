@@ -42,7 +42,7 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
     }
 
     let status = format!(
-        "[/] search  [t] tags  [?] help  [a] add [dd] delete [H/L] move [R] reload  |  Today: {}/3  |  week: {}{}{}",
+        "[/] search  [t] tags  [?] help  [a] add [dd] delete [H/L] move [J/K] reorder [R] reload  |  Today: {}/3  |  week: {}{}{}",
         app.today_wip_count(),
         app.week_range_label(),
         if let Some(msg) = &app.status_message {
