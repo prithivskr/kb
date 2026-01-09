@@ -97,56 +97,6 @@ pub enum UiAction {
 }
 
 impl AppState {
-    pub fn seeded() -> Self {
-        Self {
-            cards: vec![
-                UiCard {
-                    id: CardId::new(),
-                    title: "Buy groceries".to_string(),
-                    column: UiColumn::Backlog,
-                    tags: vec!["life".to_string()],
-                    due_date: None,
-                    blocked: false,
-                },
-                UiCard {
-                    id: CardId::new(),
-                    title: "Fix login bug".to_string(),
-                    column: UiColumn::ThisWeek,
-                    tags: vec!["work".to_string(), "p1".to_string()],
-                    due_date: NaiveDate::from_ymd_opt(2026, 3, 8),
-                    blocked: true,
-                },
-                UiCard {
-                    id: CardId::new(),
-                    title: "Write spec".to_string(),
-                    column: UiColumn::Today,
-                    tags: vec!["work".to_string()],
-                    due_date: NaiveDate::from_ymd_opt(2026, 3, 7),
-                    blocked: false,
-                },
-                UiCard {
-                    id: CardId::new(),
-                    title: "Update deps".to_string(),
-                    column: UiColumn::Done,
-                    tags: vec![],
-                    due_date: None,
-                    blocked: false,
-                },
-                UiCard {
-                    id: CardId::new(),
-                    title: "Update more deps".to_string(),
-                    column: UiColumn::Done,
-                    tags: vec![],
-                    due_date: None,
-                    blocked: false,
-                },
-            ],
-            active_column: UiColumn::Today,
-            selected_by_column: [0, 0, 0, 0],
-            status_message: None,
-        }
-    }
-
     pub fn from_domain_cards(cards: Vec<Card>) -> Self {
         let mapped = map_domain_cards(cards);
 
