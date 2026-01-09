@@ -80,6 +80,12 @@ fn handle_action(action: app::UiAction, app: &mut app::AppState, repo: &mut Sqli
             handle_insert(repo, app)?;
             Ok(false)
         }
+        app::UiAction::InsertBelow => {
+            app.disarm_delete();
+            app.clear_status_message();
+            handle_insert_below(repo, app)?;
+            Ok(false)
+        }
         app::UiAction::MoveLeft => {
             app.disarm_delete();
             app.clear_status_message();
@@ -175,6 +181,7 @@ fn map_key_to_action(key: KeyEvent, pending_g: &mut bool) -> app::UiAction {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => app::UiAction::Quit,
         KeyCode::Char('a') => app::UiAction::Insert,
+        KeyCode::Char('i') => app::UiAction::InsertBelow,
         KeyCode::Char('H') => app::UiAction::MoveLeft,
         KeyCode::Char('L') => app::UiAction::MoveRight,
         KeyCode::Char('K') => app::UiAction::ReorderUp,
@@ -222,6 +229,25 @@ fn handle_insert(repo: &mut SqliteRepository, app: &mut app::AppState) -> Result
         recurrence: None,
     };
     repo.create_card(input)?;
+    reload_board_state(repo, app)?;
+    Ok(())
+}
+
+fn handle_insert_below(repo: &mut SqliteRepository, app: &mut app::AppState) -> Result<()> {
+    let column = app.active_column;
+    let len = app.column_len(column);
+    let selected = app.selected_index(column);
+    let target = if len == 0 { 0 } else { (selected + 1).min(len) };
+    let input = NewCard {
+        title: "New Task".to_string(),
+        notes: None,
+        column: column.to_domain(),
+        position: i64::try_from(target).expect("target position should fit i64"),
+        due_date: None,
+        recurrence: None,
+    };
+    repo.insert_card_at(input)?;
+    app.set_selected_index(column, target);
     reload_board_state(repo, app)?;
     Ok(())
 }

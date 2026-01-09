@@ -68,6 +68,55 @@ impl SqliteRepository {
         Ok(card)
     }
 
+    pub fn insert_card_at(&mut self, input: NewCard) -> Result<Card> {
+        let now = Utc::now();
+        let mut card = Card::new(CardId::new(), input.title, input.column, input.position, now)?;
+        card.notes = input.notes;
+        card.due_date = input.due_date;
+        card.recurrence = input.recurrence;
+
+        let tx = self
+            .conn
+            .transaction()
+            .context("failed to begin insert-at transaction")?;
+
+        tx.execute(
+            "UPDATE cards
+             SET position = position + 1
+             WHERE column = ?1 AND archived = 0 AND position >= ?2",
+            params![card.column, card.position],
+        )
+        .context("failed shifting column positions for insert-at")?;
+
+        tx.execute(
+            "INSERT INTO cards(
+                id, title, notes, column, position, due_date, created_at, updated_at, done_at, archived, blocked
+            ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                card.id.to_string(),
+                card.title,
+                card.notes,
+                card.column,
+                card.position,
+                card.due_date.map(format_date),
+                card.created_at.to_rfc3339(),
+                card.updated_at.to_rfc3339(),
+                card.done_at.map(|dt| dt.to_rfc3339()),
+                bool_to_int(card.archived),
+                bool_to_int(card.blocked),
+            ],
+        )
+        .context("failed inserting card in insert-at")?;
+
+        if let Some(rule) = &card.recurrence {
+            upsert_recurrence_rule_tx(&tx, card.id, rule)?;
+        }
+
+        tx.commit()
+            .context("failed to commit insert-at transaction")?;
+        Ok(card)
+    }
+
     pub fn get_card(&self, id: CardId) -> Result<Option<Card>> {
         let card = self
             .conn

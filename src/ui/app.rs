@@ -91,6 +91,7 @@ pub enum UiAction {
     CursorUp,
     CursorDown,
     Insert,
+    InsertBelow,
     MoveLeft,
     MoveRight,
     ReorderUp,
@@ -194,6 +195,7 @@ impl AppState {
                 false
             }
             UiAction::Insert
+            | UiAction::InsertBelow
             | UiAction::MoveLeft
             | UiAction::MoveRight
             | UiAction::ReorderUp
