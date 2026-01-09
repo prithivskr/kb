@@ -79,6 +79,7 @@ pub struct AppState {
     pub cards: Vec<UiCard>,
     pub active_column: UiColumn,
     pub selected_by_column: [usize; 4],
+    pub status_message: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +89,10 @@ pub enum UiAction {
     ColumnNext,
     CursorUp,
     CursorDown,
+    Insert,
+    MoveLeft,
+    MoveRight,
+    Reload,
     None,
 }
 
@@ -138,6 +143,7 @@ impl AppState {
             ],
             active_column: UiColumn::Today,
             selected_by_column: [0, 0, 0, 0],
+            status_message: None,
         }
     }
 
@@ -148,6 +154,7 @@ impl AppState {
             cards: mapped,
             active_column: UiColumn::Today,
             selected_by_column: [0, 0, 0, 0],
+            status_message: None,
         }
     }
 
@@ -225,6 +232,7 @@ impl AppState {
                 self.move_selection_down_active();
                 false
             }
+            UiAction::Insert | UiAction::MoveLeft | UiAction::MoveRight | UiAction::Reload => false,
             UiAction::None => false,
         }
     }
@@ -269,6 +277,14 @@ impl AppState {
 
     pub fn is_empty(&self) -> bool {
         self.cards.is_empty()
+    }
+
+    pub fn set_status_message(&mut self, message: impl Into<String>) {
+        self.status_message = Some(message.into());
+    }
+
+    pub fn clear_status_message(&mut self) {
+        self.status_message = None;
     }
 }
 

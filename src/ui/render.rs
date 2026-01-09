@@ -42,9 +42,14 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
     }
 
     let status = format!(
-        "[/] search  [t] tags  [?] help  |  Today: {}/3  |  week: {}{}",
+        "[/] search  [t] tags  [?] help  [a] add [H/L] move [R] reload  |  Today: {}/3  |  week: {}{}{}",
         app.today_wip_count(),
         app.week_range_label(),
+        if let Some(msg) = &app.status_message {
+            format!("  |  {msg}")
+        } else {
+            String::new()
+        },
         if app.is_empty() { "  |  board is empty" } else { "" }
     );
     let status_bar = Paragraph::new(status).style(Style::default().fg(theme::FG).bg(theme::BG));

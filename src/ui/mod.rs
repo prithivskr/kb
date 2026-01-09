@@ -58,26 +58,42 @@ fn run_event_loop(
             let Event::Key(key) = event::read()? else {
                 continue;
             };
-            if matches!(key.code, KeyCode::Char('a')) {
-                handle_insert(repo, app)?;
-                continue;
-            }
-            if matches!(key.code, KeyCode::Char('H')) {
-                handle_move(repo, app, MoveDirection::Left)?;
-                continue;
-            }
-            if matches!(key.code, KeyCode::Char('L')) {
-                handle_move(repo, app, MoveDirection::Right)?;
-                continue;
-            }
-            if matches!(key.code, KeyCode::Char('R')) {
-                reload_board_state(repo, app)?;
-                continue;
-            }
             let action = map_key_to_action(key);
-            if app.apply_action(action) {
-                return Ok(());
+            if action == app::UiAction::None {
+                continue;
             }
+            match handle_action(action, app, repo) {
+                Ok(should_quit) if should_quit => return Ok(()),
+                Ok(_) => app.clear_status_message(),
+                Err(err) => app.set_status_message(format!("error: {err}")),
+            }
+        }
+    }
+}
+
+fn handle_action(action: app::UiAction, app: &mut app::AppState, repo: &mut SqliteRepository) -> Result<bool> {
+    match action {
+        app::UiAction::Insert => {
+            handle_insert(repo, app)?;
+            Ok(false)
+        }
+        app::UiAction::MoveLeft => {
+            handle_move(repo, app, MoveDirection::Left)?;
+            Ok(false)
+        }
+        app::UiAction::MoveRight => {
+            handle_move(repo, app, MoveDirection::Right)?;
+            Ok(false)
+        }
+        app::UiAction::Reload => {
+            reload_board_state(repo, app)?;
+            Ok(false)
+        }
+        _ => {
+            if app.apply_action(action) {
+                return Ok(true);
+            }
+            Ok(false)
         }
     }
 }
@@ -85,6 +101,10 @@ fn run_event_loop(
 fn map_key_to_action(key: KeyEvent) -> app::UiAction {
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => app::UiAction::Quit,
+        KeyCode::Char('a') => app::UiAction::Insert,
+        KeyCode::Char('H') => app::UiAction::MoveLeft,
+        KeyCode::Char('L') => app::UiAction::MoveRight,
+        KeyCode::Char('R') => app::UiAction::Reload,
         KeyCode::Char('h') | KeyCode::BackTab => app::UiAction::ColumnPrev,
         KeyCode::Char('l') | KeyCode::Tab => app::UiAction::ColumnNext,
         KeyCode::Char('j') => app::UiAction::CursorDown,
