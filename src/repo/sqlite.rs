@@ -207,6 +207,29 @@ impl SqliteRepository {
         Ok(())
     }
 
+    pub fn delete_card(&mut self, id: CardId) -> Result<()> {
+        let tx = self
+            .conn
+            .transaction()
+            .context("failed to begin delete transaction")?;
+        let (column, position) = fetch_card_location(&tx, id)?
+            .with_context(|| format!("card not found for delete: {id}"))?;
+
+        tx.execute("DELETE FROM cards WHERE id = ?1", [id.to_string()])
+            .context("failed deleting card")?;
+
+        tx.execute(
+            "UPDATE cards
+             SET position = position - 1
+             WHERE column = ?1 AND archived = 0 AND position > ?2",
+            params![column, position],
+        )
+        .context("failed compacting column after delete")?;
+
+        tx.commit().context("failed to commit delete transaction")?;
+        Ok(())
+    }
+
     pub fn set_recurrence(&mut self, id: CardId, recurrence: Option<RecurrenceRule>) -> Result<()> {
         let tx = self
             .conn
