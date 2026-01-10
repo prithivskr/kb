@@ -9,11 +9,11 @@ pub struct ParsedTaskInput {
 }
 
 pub fn parse_task_input(raw: &str, today: NaiveDate) -> ParsedTaskInput {
-    let (without_date_segments, due_date) = extract_date_and_strip(raw, today);
+    let (without_date_suffix, due_date) = split_at_date_suffix(raw, today);
 
     let mut title_tokens = Vec::new();
     let mut tags = Vec::new();
-    for token in without_date_segments.split_whitespace() {
+    for token in without_date_suffix.split_whitespace() {
         if let Some(tag) = normalize_tag_token(token) {
             if !tags.contains(&tag) {
                 tags.push(tag);
@@ -25,7 +25,7 @@ pub fn parse_task_input(raw: &str, today: NaiveDate) -> ParsedTaskInput {
 
     let cleaned = title_tokens.join(" ").trim().to_string();
     let title = if cleaned.is_empty() {
-        raw.trim().to_string()
+        without_date_suffix.trim().to_string()
     } else {
         cleaned
     };
@@ -37,39 +37,15 @@ pub fn parse_task_input(raw: &str, today: NaiveDate) -> ParsedTaskInput {
     }
 }
 
-fn extract_date_and_strip(raw: &str, today: NaiveDate) -> (String, Option<NaiveDate>) {
-    let mut remaining = String::with_capacity(raw.len());
-    let mut due_date = None;
-    let mut cursor = 0usize;
+fn split_at_date_suffix(raw: &str, today: NaiveDate) -> (String, Option<NaiveDate>) {
+    let Some(at_index) = raw.find('@') else {
+        return (raw.to_string(), None);
+    };
 
-    while let Some(start_rel) = raw[cursor..].find('[') {
-        let start = cursor + start_rel;
-        remaining.push_str(&raw[cursor..start]);
-
-        let after_start = start + 1;
-        let Some(end_rel) = raw[after_start..].find(']') else {
-            remaining.push_str(&raw[start..]);
-            cursor = raw.len();
-            break;
-        };
-        let end = after_start + end_rel;
-        let candidate = raw[after_start..end].trim();
-
-        if due_date.is_none() {
-            due_date = DateParser::parse_relative(candidate, today);
-        }
-
-        if due_date.is_none() {
-            remaining.push_str(&raw[start..=end]);
-        }
-        cursor = end + 1;
-    }
-
-    if cursor < raw.len() {
-        remaining.push_str(&raw[cursor..]);
-    }
-
-    (remaining, due_date)
+    let title_prefix = raw[..at_index].to_string();
+    let date_suffix = raw[at_index + 1..].trim();
+    let due_date = DateParser::parse_relative(date_suffix, today);
+    (title_prefix, due_date)
 }
 
 fn normalize_tag_token(token: &str) -> Option<String> {
@@ -95,7 +71,7 @@ mod tests {
     #[test]
     fn parses_due_date_and_tags() {
         let today = NaiveDate::from_ymd_opt(2026, 3, 7).expect("valid fixed date");
-        let parsed = parse_task_input("Study [11:59 am tomorrow] #focus #School", today);
+        let parsed = parse_task_input("Study #focus #School @ 11:59 am tomorrow", today);
 
         assert_eq!(
             parsed.due_date,
@@ -117,11 +93,21 @@ mod tests {
     }
 
     #[test]
-    fn only_parses_date_when_bracketed() {
+    fn only_parses_date_when_at_sign_is_present() {
         let today = NaiveDate::from_ymd_opt(2026, 3, 7).expect("valid fixed date");
         let parsed = parse_task_input("test tomorrow", today);
 
         assert_eq!(parsed.due_date, None);
         assert_eq!(parsed.title, "test tomorrow");
+    }
+
+    #[test]
+    fn removes_everything_after_first_at_sign() {
+        let today = NaiveDate::from_ymd_opt(2026, 3, 7).expect("valid fixed date");
+        let parsed = parse_task_input("test #cs233 @ in 5 days", today);
+
+        assert_eq!(parsed.title, "test");
+        assert_eq!(parsed.tags, vec!["cs233".to_string()]);
+        assert_eq!(parsed.due_date, NaiveDate::from_ymd_opt(2026, 3, 12));
     }
 }
