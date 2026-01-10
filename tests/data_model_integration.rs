@@ -18,7 +18,9 @@ fn migrations_are_idempotent() {
     run_migrations(&mut conn).expect("second migration run should succeed");
 
     let migration_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })
         .expect("count query should succeed");
     assert_eq!(migration_count, 3);
 

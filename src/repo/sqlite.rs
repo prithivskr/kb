@@ -3,10 +3,10 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rusqlite::types::{Type, Value};
-use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Row, Transaction};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
 
 use crate::domain::{
-    validate_card_title, Card, CardId, Column, RecurrenceFrequency, RecurrenceRule, Weekday,
+    Card, CardId, Column, RecurrenceFrequency, RecurrenceRule, Weekday, validate_card_title,
 };
 use crate::storage::run_migrations;
 
@@ -36,7 +36,13 @@ impl SqliteRepository {
 
     pub fn create_card(&mut self, input: NewCard) -> Result<Card> {
         let now = Utc::now();
-        let mut card = Card::new(CardId::new(), input.title, input.column, input.position, now)?;
+        let mut card = Card::new(
+            CardId::new(),
+            input.title,
+            input.column,
+            input.position,
+            now,
+        )?;
         card.notes = input.notes;
         card.due_date = input.due_date;
         card.recurrence = input.recurrence;
@@ -70,7 +76,13 @@ impl SqliteRepository {
 
     pub fn insert_card_at(&mut self, input: NewCard) -> Result<Card> {
         let now = Utc::now();
-        let mut card = Card::new(CardId::new(), input.title, input.column, input.position, now)?;
+        let mut card = Card::new(
+            CardId::new(),
+            input.title,
+            input.column,
+            input.position,
+            now,
+        )?;
         card.notes = input.notes;
         card.due_date = input.due_date;
         card.recurrence = input.recurrence;
@@ -210,7 +222,12 @@ impl SqliteRepository {
         ensure_row_updated(updated, id)
     }
 
-    pub fn move_card(&mut self, id: CardId, target_column: Column, target_position: i64) -> Result<()> {
+    pub fn move_card(
+        &mut self,
+        id: CardId,
+        target_column: Column,
+        target_position: i64,
+    ) -> Result<()> {
         let tx = self
             .conn
             .transaction()
@@ -220,7 +237,14 @@ impl SqliteRepository {
         let now = Utc::now().to_rfc3339();
 
         if source_column == target_column {
-            reorder_within_column(&tx, id, source_column, source_position, target_position, &now)?;
+            reorder_within_column(
+                &tx,
+                id,
+                source_column,
+                source_position,
+                target_position,
+                &now,
+            )?;
         } else {
             tx.execute(
                 "UPDATE cards
@@ -293,8 +317,11 @@ impl SqliteRepository {
         match recurrence {
             Some(rule) => upsert_recurrence_rule_tx(&tx, id, &rule)?,
             None => {
-                tx.execute("DELETE FROM recurrence_rules WHERE card_id = ?1", [id.to_string()])
-                    .context("failed clearing recurrence rule")?;
+                tx.execute(
+                    "DELETE FROM recurrence_rules WHERE card_id = ?1",
+                    [id.to_string()],
+                )
+                .context("failed clearing recurrence rule")?;
             }
         }
 
@@ -324,7 +351,14 @@ impl SqliteRepository {
         let completed_on = now.date_naive();
 
         if seed.column == Column::Done {
-            reorder_within_column(&tx, id, seed.column, seed.position, done_position, &now_rfc3339)?;
+            reorder_within_column(
+                &tx,
+                id,
+                seed.column,
+                seed.position,
+                done_position,
+                &now_rfc3339,
+            )?;
             tx.execute(
                 "UPDATE cards SET done_at = COALESCE(done_at, ?1), updated_at = ?1 WHERE id = ?2",
                 params![now_rfc3339, id.to_string()],
@@ -411,7 +445,10 @@ impl SqliteRepository {
         tx.commit()
             .context("failed to commit completion transaction")?;
 
-        spawned_id.map(|spawn_id| self.get_card(spawn_id)).transpose().map(|v| v.flatten())
+        spawned_id
+            .map(|spawn_id| self.get_card(spawn_id))
+            .transpose()
+            .map(|v| v.flatten())
     }
 
     pub fn set_tags(&mut self, id: CardId, tags: Vec<String>) -> Result<()> {
@@ -437,7 +474,9 @@ impl SqliteRepository {
             .context("failed inserting tag")?;
 
             let tag_id: i64 = tx
-                .query_row("SELECT id FROM tags WHERE name = ?1", [tag_name], |row| row.get(0))
+                .query_row("SELECT id FROM tags WHERE name = ?1", [tag_name], |row| {
+                    row.get(0)
+                })
                 .context("failed loading tag id")?;
 
             tx.execute(
@@ -500,11 +539,8 @@ impl SqliteRepository {
              ORDER BY c.column ASC, c.position ASC, c.created_at ASC"
         );
 
-        let mut bind_values: Vec<Value> = normalized_tags
-            .iter()
-            .cloned()
-            .map(Value::Text)
-            .collect();
+        let mut bind_values: Vec<Value> =
+            normalized_tags.iter().cloned().map(Value::Text).collect();
         bind_values.push(Value::Integer(
             i64::try_from(normalized_tags.len()).expect("tag count should fit in i64"),
         ));
@@ -602,11 +638,7 @@ struct CompletionSeed {
 }
 
 fn bool_to_int(value: bool) -> i64 {
-    if value {
-        1
-    } else {
-        0
-    }
+    if value { 1 } else { 0 }
 }
 
 fn int_to_bool(value: i64) -> bool {
@@ -634,9 +666,8 @@ fn parse_optional_datetime(raw: Option<String>) -> rusqlite::Result<Option<DateT
 
 fn parse_optional_date(raw: Option<String>) -> rusqlite::Result<Option<NaiveDate>> {
     raw.map(|value| {
-        NaiveDate::parse_from_str(&value, "%Y-%m-%d").map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(err))
-        })
+        NaiveDate::parse_from_str(&value, "%Y-%m-%d")
+            .map_err(|err| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(err)))
     })
     .transpose()
 }
@@ -756,7 +787,11 @@ fn reorder_within_column(
     Ok(())
 }
 
-fn upsert_recurrence_rule_conn(conn: &Connection, card_id: CardId, rule: &RecurrenceRule) -> Result<()> {
+fn upsert_recurrence_rule_conn(
+    conn: &Connection,
+    card_id: CardId,
+    rule: &RecurrenceRule,
+) -> Result<()> {
     rule.validate()?;
     let days_of_week = rule
         .days_of_week
@@ -785,7 +820,11 @@ fn upsert_recurrence_rule_conn(conn: &Connection, card_id: CardId, rule: &Recurr
     Ok(())
 }
 
-fn upsert_recurrence_rule_tx(tx: &Transaction<'_>, card_id: CardId, rule: &RecurrenceRule) -> Result<()> {
+fn upsert_recurrence_rule_tx(
+    tx: &Transaction<'_>,
+    card_id: CardId,
+    rule: &RecurrenceRule,
+) -> Result<()> {
     rule.validate()?;
     let days_of_week = rule
         .days_of_week
@@ -1056,7 +1095,9 @@ mod tests {
             .expect("tag insert should succeed");
         let tag_id: i64 = repo
             .connection()
-            .query_row("SELECT id FROM tags WHERE name = ?1", ["p1"], |row| row.get(0))
+            .query_row("SELECT id FROM tags WHERE name = ?1", ["p1"], |row| {
+                row.get(0)
+            })
             .expect("tag query should succeed");
         repo.connection()
             .execute(

@@ -53,7 +53,11 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
             } else {
                 String::new()
             },
-            if app.is_empty() { "  |  board is empty" } else { "" }
+            if app.is_empty() {
+                "  |  board is empty"
+            } else {
+                ""
+            }
         )
     };
     let status = truncate_for_width(&status, usize::from(layout[1].width));
