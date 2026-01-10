@@ -314,8 +314,17 @@ fn handle_move(
         repo.move_card(card_id, target.to_domain(), target_position)?;
     }
 
-    app.active_column = target;
     reload_board_state(repo, app)?;
+    app.active_column = target;
+    let moved_index = app
+        .cards_in_column(target)
+        .iter()
+        .position(|card| card.id == card_id);
+    if let Some(index) = moved_index {
+        app.set_selected_index(target, index);
+    } else {
+        app.jump_to_column(target);
+    }
     Ok(())
 }
 

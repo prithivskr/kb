@@ -191,13 +191,13 @@ impl AppState {
             UiAction::ColumnPrev => {
                 let current = self.active_column.to_index();
                 let next = (current + 3) % UiColumn::ALL.len();
-                self.active_column = UiColumn::from_index(next);
+                self.switch_active_column(UiColumn::from_index(next));
                 false
             }
             UiAction::ColumnNext => {
                 let current = self.active_column.to_index();
                 let next = (current + 1) % UiColumn::ALL.len();
-                self.active_column = UiColumn::from_index(next);
+                self.switch_active_column(UiColumn::from_index(next));
                 false
             }
             UiAction::CursorUp => {
@@ -327,7 +327,7 @@ impl AppState {
     }
 
     pub fn jump_to_column(&mut self, column: UiColumn) {
-        self.active_column = column;
+        self.switch_active_column(column);
     }
 
     pub fn jump_top_active(&mut self) {
@@ -341,6 +341,14 @@ impl AppState {
             return;
         }
         self.set_selected_index(self.active_column, len - 1);
+    }
+
+    fn switch_active_column(&mut self, target: UiColumn) {
+        let source_row = self.selected_index(self.active_column);
+        self.active_column = target;
+        let len = self.column_len(target);
+        let clamped = if len == 0 { 0 } else { source_row.min(len - 1) };
+        self.set_selected_index(target, clamped);
     }
 }
 
