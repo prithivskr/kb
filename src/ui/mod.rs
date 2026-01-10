@@ -2,6 +2,7 @@ use std::io::{self, Stdout};
 use std::time::Duration;
 
 use anyhow::Result;
+use chrono::Local;
 use crossterm::event::{self, Event, KeyCode, KeyEvent};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -10,6 +11,7 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
+use crate::input_parser::parse_task_input;
 use crate::repo::{NewCard, SqliteRepository};
 use crate::storage::open_default_connection;
 
@@ -78,7 +80,11 @@ fn run_event_loop(
     }
 }
 
-fn handle_action(action: app::UiAction, app: &mut app::AppState, repo: &mut SqliteRepository) -> Result<bool> {
+fn handle_action(
+    action: app::UiAction,
+    app: &mut app::AppState,
+    repo: &mut SqliteRepository,
+) -> Result<bool> {
     match action {
         app::UiAction::Insert => {
             app.disarm_delete();
@@ -224,17 +230,25 @@ fn reload_board_state(repo: &SqliteRepository, app: &mut app::AppState) -> Resul
     Ok(())
 }
 
-fn handle_insert_with_title(repo: &mut SqliteRepository, app: &mut app::AppState, title: &str) -> Result<()> {
+fn handle_insert_with_title(
+    repo: &mut SqliteRepository,
+    app: &mut app::AppState,
+    title: &str,
+) -> Result<()> {
     let column = app.active_column;
+    let parsed = parse_task_input(title, Local::now().date_naive());
     let input = NewCard {
-        title: title.to_string(),
+        title: parsed.title,
         notes: None,
         column: column.to_domain(),
         position: i64::try_from(app.column_len(column)).expect("column length should fit i64"),
-        due_date: None,
+        due_date: parsed.due_date,
         recurrence: None,
     };
-    repo.create_card(input)?;
+    let card = repo.create_card(input)?;
+    if !parsed.tags.is_empty() {
+        repo.set_tags(card.id, parsed.tags)?;
+    }
     reload_board_state(repo, app)?;
     Ok(())
 }
@@ -245,18 +259,22 @@ fn handle_insert_below_with_title(
     title: &str,
 ) -> Result<()> {
     let column = app.active_column;
+    let parsed = parse_task_input(title, Local::now().date_naive());
     let len = app.column_len(column);
     let selected = app.selected_index(column);
     let target = if len == 0 { 0 } else { (selected + 1).min(len) };
     let input = NewCard {
-        title: title.to_string(),
+        title: parsed.title,
         notes: None,
         column: column.to_domain(),
         position: i64::try_from(target).expect("target position should fit i64"),
-        due_date: None,
+        due_date: parsed.due_date,
         recurrence: None,
     };
-    repo.insert_card_at(input)?;
+    let card = repo.insert_card_at(input)?;
+    if !parsed.tags.is_empty() {
+        repo.set_tags(card.id, parsed.tags)?;
+    }
     app.set_selected_index(column, target);
     reload_board_state(repo, app)?;
     Ok(())
@@ -274,7 +292,11 @@ enum ReorderDirection {
     Down,
 }
 
-fn handle_move(repo: &mut SqliteRepository, app: &mut app::AppState, direction: MoveDirection) -> Result<()> {
+fn handle_move(
+    repo: &mut SqliteRepository,
+    app: &mut app::AppState,
+    direction: MoveDirection,
+) -> Result<()> {
     let Some(card_id) = app.selected_card_id_active() else {
         return Ok(());
     };
@@ -306,7 +328,11 @@ fn adjacent_column(column: app::UiColumn, direction: MoveDirection) -> Option<ap
     }
 }
 
-fn handle_reorder(repo: &mut SqliteRepository, app: &mut app::AppState, direction: ReorderDirection) -> Result<()> {
+fn handle_reorder(
+    repo: &mut SqliteRepository,
+    app: &mut app::AppState,
+    direction: ReorderDirection,
+) -> Result<()> {
     let column = app.active_column;
     let len = app.column_len(column);
     if len < 2 {
