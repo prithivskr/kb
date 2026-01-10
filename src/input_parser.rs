@@ -9,11 +9,11 @@ pub struct ParsedTaskInput {
 }
 
 pub fn parse_task_input(raw: &str, today: NaiveDate) -> ParsedTaskInput {
-    let due_date = DateParser::parse_relative(raw, today);
+    let (without_date_segments, due_date) = extract_date_and_strip(raw, today);
 
     let mut title_tokens = Vec::new();
     let mut tags = Vec::new();
-    for token in raw.split_whitespace() {
+    for token in without_date_segments.split_whitespace() {
         if let Some(tag) = normalize_tag_token(token) {
             if !tags.contains(&tag) {
                 tags.push(tag);
@@ -35,6 +35,41 @@ pub fn parse_task_input(raw: &str, today: NaiveDate) -> ParsedTaskInput {
         due_date,
         tags,
     }
+}
+
+fn extract_date_and_strip(raw: &str, today: NaiveDate) -> (String, Option<NaiveDate>) {
+    let mut remaining = String::with_capacity(raw.len());
+    let mut due_date = None;
+    let mut cursor = 0usize;
+
+    while let Some(start_rel) = raw[cursor..].find('[') {
+        let start = cursor + start_rel;
+        remaining.push_str(&raw[cursor..start]);
+
+        let after_start = start + 1;
+        let Some(end_rel) = raw[after_start..].find(']') else {
+            remaining.push_str(&raw[start..]);
+            cursor = raw.len();
+            break;
+        };
+        let end = after_start + end_rel;
+        let candidate = raw[after_start..end].trim();
+
+        if due_date.is_none() {
+            due_date = DateParser::parse_relative(candidate, today);
+        }
+
+        if due_date.is_none() {
+            remaining.push_str(&raw[start..=end]);
+        }
+        cursor = end + 1;
+    }
+
+    if cursor < raw.len() {
+        remaining.push_str(&raw[cursor..]);
+    }
+
+    (remaining, due_date)
 }
 
 fn normalize_tag_token(token: &str) -> Option<String> {
@@ -60,7 +95,7 @@ mod tests {
     #[test]
     fn parses_due_date_and_tags() {
         let today = NaiveDate::from_ymd_opt(2026, 3, 7).expect("valid fixed date");
-        let parsed = parse_task_input("Study by 11:59 am tomorrow #focus #School", today);
+        let parsed = parse_task_input("Study [11:59 am tomorrow] #focus #School", today);
 
         assert_eq!(
             parsed.due_date,
@@ -68,7 +103,7 @@ mod tests {
             "tomorrow should resolve relative to provided date"
         );
         assert_eq!(parsed.tags, vec!["focus".to_string(), "school".to_string()]);
-        assert_eq!(parsed.title, "Study by 11:59 am tomorrow");
+        assert_eq!(parsed.title, "Study");
     }
 
     #[test]
@@ -79,5 +114,14 @@ mod tests {
         assert_eq!(parsed.due_date, None);
         assert_eq!(parsed.tags, vec!["p1".to_string(), "backend".to_string()]);
         assert_eq!(parsed.title, "Fix login");
+    }
+
+    #[test]
+    fn only_parses_date_when_bracketed() {
+        let today = NaiveDate::from_ymd_opt(2026, 3, 7).expect("valid fixed date");
+        let parsed = parse_task_input("test tomorrow", today);
+
+        assert_eq!(parsed.due_date, None);
+        assert_eq!(parsed.title, "test tomorrow");
     }
 }
