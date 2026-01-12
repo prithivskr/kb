@@ -66,6 +66,10 @@ fn run_event_loop(
                 handle_insert_prompt_key(key, app, repo)?;
                 continue;
             }
+            if app.has_search_prompt() {
+                handle_search_prompt_key(key, app);
+                continue;
+            }
 
             let action = map_key_to_action(key, &mut pending_g);
             if action == app::UiAction::None {
@@ -126,6 +130,12 @@ fn handle_action(
             app.disarm_delete();
             app.clear_status_message();
             reload_board_state(repo, app)?;
+            Ok(false)
+        }
+        app::UiAction::Search => {
+            app.disarm_delete();
+            app.clear_status_message();
+            app.start_search_prompt();
             Ok(false)
         }
         app::UiAction::DeletePress => {
@@ -194,6 +204,7 @@ fn map_key_to_action(key: KeyEvent, pending_g: &mut bool) -> app::UiAction {
         KeyCode::Char('q') | KeyCode::Esc => app::UiAction::Quit,
         KeyCode::Char('a') => app::UiAction::Insert,
         KeyCode::Char('i') => app::UiAction::InsertBelow,
+        KeyCode::Char('/') => app::UiAction::Search,
         KeyCode::Char('H') => app::UiAction::MoveLeft,
         KeyCode::Char('L') => app::UiAction::MoveRight,
         KeyCode::Char('K') => app::UiAction::ReorderUp,
@@ -422,4 +433,32 @@ fn handle_insert_prompt_key(
         _ => {}
     }
     Ok(())
+}
+
+fn handle_search_prompt_key(key: KeyEvent, app: &mut app::AppState) {
+    match key.code {
+        KeyCode::Esc => {
+            app.cancel_search_prompt();
+            app.set_status_message("search canceled");
+        }
+        KeyCode::Backspace => {
+            app.pop_search_char();
+        }
+        KeyCode::Enter => {
+            if let Some(query) = app.submit_search_prompt() {
+                app.set_search_query(query);
+                if let Some(active_query) = app.active_search_label() {
+                    app.set_status_message(format!("search: {active_query}"));
+                } else {
+                    app.clear_status_message();
+                }
+            }
+        }
+        KeyCode::Char(ch) => {
+            if !ch.is_control() {
+                app.push_search_char(ch);
+            }
+        }
+        _ => {}
+    }
 }

@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, NaiveDate, Utc};
-use rusqlite::types::{Type, Value};
-use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
+use rusqlite::types::Type;
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 
 use crate::domain::{Card, CardId, Column, validate_card_title};
 use crate::storage::run_migrations;
@@ -386,50 +386,6 @@ impl SqliteRepository {
         Ok(tags.context("failed reading tags in use")?)
     }
 
-    pub fn filter_cards_by_tags(&self, tags: &[String]) -> Result<Vec<Card>> {
-        let normalized_tags = normalize_tags(tags.to_vec());
-        if normalized_tags.is_empty() {
-            return self.list_all_active_cards();
-        }
-
-        let placeholders = std::iter::repeat_n("?", normalized_tags.len())
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sql = format!(
-            "SELECT
-                c.id, c.title, c.column, c.position, c.due_date,
-                c.created_at, c.updated_at, c.done_at, c.archived, c.blocked
-             FROM cards c
-             JOIN card_tags ct ON ct.card_id = c.id
-             JOIN tags t ON t.id = ct.tag_id
-             WHERE c.archived = 0 AND t.name IN ({placeholders})
-             GROUP BY c.id
-             HAVING COUNT(DISTINCT t.name) = ?
-             ORDER BY c.column ASC, c.position ASC, c.created_at ASC"
-        );
-
-        let mut bind_values: Vec<Value> =
-            normalized_tags.iter().cloned().map(Value::Text).collect();
-        bind_values.push(Value::Integer(
-            i64::try_from(normalized_tags.len()).expect("tag count should fit in i64"),
-        ));
-
-        let mut stmt = self
-            .conn
-            .prepare(&sql)
-            .context("failed to prepare filter_cards_by_tags statement")?;
-        let iter = stmt
-            .query_map(params_from_iter(bind_values), row_to_card)
-            .context("failed querying filtered cards")?;
-
-        let cards: rusqlite::Result<Vec<Card>> = iter.collect();
-        cards
-            .context("failed reading filtered cards")?
-            .into_iter()
-            .map(|card| self.hydrate_card(card))
-            .collect()
-    }
-
     pub fn archive_all_done(&mut self) -> Result<usize> {
         let now = Utc::now().to_rfc3339();
         let updated = self
@@ -469,30 +425,6 @@ impl SqliteRepository {
     fn hydrate_card(&self, mut card: Card) -> Result<Card> {
         card.tags = fetch_tags_for_card_conn(&self.conn, card.id)?;
         Ok(card)
-    }
-
-    fn list_all_active_cards(&self) -> Result<Vec<Card>> {
-        let mut stmt = self
-            .conn
-            .prepare(
-                "SELECT
-                    id, title, column, position, due_date,
-                    created_at, updated_at, done_at, archived, blocked
-                 FROM cards
-                 WHERE archived = 0
-                 ORDER BY column ASC, position ASC, created_at ASC",
-            )
-            .context("failed to prepare list_all_active_cards statement")?;
-
-        let iter = stmt
-            .query_map([], row_to_card)
-            .context("failed listing active cards")?;
-        let cards: rusqlite::Result<Vec<Card>> = iter.collect();
-        cards
-            .context("failed parsing active cards")?
-            .into_iter()
-            .map(|card| self.hydrate_card(card))
-            .collect()
     }
 }
 
@@ -780,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn tag_management_and_filtering() {
+    fn tag_management_lists_tags_in_use() {
         let conn = Connection::open_in_memory().expect("in-memory db should open");
         let mut repo = SqliteRepository::new(conn).expect("repo should initialize");
 
@@ -811,17 +743,6 @@ mod tests {
 
         let tags = repo.list_tags_in_use().expect("list tags should succeed");
         assert_eq!(tags, vec!["backend".to_string(), "p1".to_string()]);
-
-        let p1_cards = repo
-            .filter_cards_by_tags(&["p1".to_string()])
-            .expect("filter should succeed");
-        assert_eq!(p1_cards.len(), 2);
-
-        let backend_cards = repo
-            .filter_cards_by_tags(&["p1".to_string(), "backend".to_string()])
-            .expect("filter should succeed");
-        assert_eq!(backend_cards.len(), 1);
-        assert_eq!(backend_cards[0].id, first.id);
     }
 
     #[test]

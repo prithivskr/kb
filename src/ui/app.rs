@@ -76,12 +76,15 @@ pub struct UiCard {
 
 #[derive(Debug, Clone)]
 pub struct AppState {
+    pub all_cards: Vec<UiCard>,
     pub cards: Vec<UiCard>,
     pub active_column: UiColumn,
     pub selected_by_column: [usize; 4],
     pub status_message: Option<String>,
     pub delete_armed: bool,
     pub insert_prompt: Option<InsertPromptState>,
+    pub search_prompt: Option<SearchPromptState>,
+    pub search_query: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +99,11 @@ pub struct InsertPromptState {
     pub buffer: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchPromptState {
+    pub buffer: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiAction {
     Quit,
@@ -103,6 +111,7 @@ pub enum UiAction {
     ColumnNext,
     CursorUp,
     CursorDown,
+    Search,
     Insert,
     InsertBelow,
     MoveLeft,
@@ -123,14 +132,18 @@ pub enum UiAction {
 impl AppState {
     pub fn from_domain_cards(cards: Vec<Card>) -> Self {
         let mapped = map_domain_cards(cards);
+        let all_cards = mapped.clone();
 
         Self {
+            all_cards,
             cards: mapped,
             active_column: UiColumn::Today,
             selected_by_column: [0, 0, 0, 0],
             status_message: None,
             delete_armed: false,
             insert_prompt: None,
+            search_prompt: None,
+            search_query: None,
         }
     }
 
@@ -209,6 +222,7 @@ impl AppState {
                 false
             }
             UiAction::Insert
+            | UiAction::Search
             | UiAction::InsertBelow
             | UiAction::MoveLeft
             | UiAction::MoveRight
@@ -227,7 +241,8 @@ impl AppState {
     }
 
     pub fn replace_from_domain_cards(&mut self, cards: Vec<Card>) {
-        self.cards = map_domain_cards(cards);
+        self.all_cards = map_domain_cards(cards);
+        self.apply_search_filter();
         self.reconcile_selection();
     }
 
@@ -326,6 +341,60 @@ impl AppState {
         Some(format!("{} title: {}_", mode, prompt.buffer))
     }
 
+    pub fn start_search_prompt(&mut self) {
+        self.search_prompt = Some(SearchPromptState {
+            buffer: self.search_query.clone().unwrap_or_default(),
+        });
+    }
+
+    pub fn cancel_search_prompt(&mut self) {
+        self.search_prompt = None;
+    }
+
+    pub fn has_search_prompt(&self) -> bool {
+        self.search_prompt.is_some()
+    }
+
+    pub fn push_search_char(&mut self, ch: char) {
+        if let Some(prompt) = &mut self.search_prompt {
+            prompt.buffer.push(ch);
+        }
+    }
+
+    pub fn pop_search_char(&mut self) {
+        if let Some(prompt) = &mut self.search_prompt {
+            prompt.buffer.pop();
+        }
+    }
+
+    pub fn submit_search_prompt(&mut self) -> Option<String> {
+        let prompt = self.search_prompt.take()?;
+        Some(prompt.buffer)
+    }
+
+    pub fn search_prompt_line(&self) -> Option<String> {
+        let prompt = self.search_prompt.as_ref()?;
+        Some(format!(
+            "search (/): {}_  (Enter apply, Esc cancel, empty clears)",
+            prompt.buffer
+        ))
+    }
+
+    pub fn set_search_query(&mut self, query: String) {
+        let trimmed = query.trim().to_string();
+        self.search_query = if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        };
+        self.apply_search_filter();
+        self.reconcile_selection();
+    }
+
+    pub fn active_search_label(&self) -> Option<&str> {
+        self.search_query.as_deref()
+    }
+
     pub fn jump_to_column(&mut self, column: UiColumn) {
         self.switch_active_column(column);
     }
@@ -350,6 +419,29 @@ impl AppState {
         let clamped = if len == 0 { 0 } else { source_row.min(len - 1) };
         self.set_selected_index(target, clamped);
     }
+
+    fn apply_search_filter(&mut self) {
+        let Some(query) = self.search_query.as_deref() else {
+            self.cards = self.all_cards.clone();
+            return;
+        };
+
+        let terms = query_terms(query);
+        if terms.is_empty() {
+            self.cards = self.all_cards.clone();
+            return;
+        }
+
+        self.cards = self
+            .all_cards
+            .iter()
+            .filter(|card| {
+                let searchable = searchable_text(card);
+                terms.iter().all(|term| fuzzy_match(&searchable, term))
+            })
+            .cloned()
+            .collect();
+    }
 }
 
 fn map_domain_cards(cards: Vec<Card>) -> Vec<UiCard> {
@@ -366,6 +458,61 @@ fn map_domain_cards(cards: Vec<Card>) -> Vec<UiCard> {
         .collect()
 }
 
+fn query_terms(query: &str) -> Vec<String> {
+    query
+        .to_lowercase()
+        .split_whitespace()
+        .map(|term| term.trim_start_matches('#').to_string())
+        .filter(|term| !term.is_empty())
+        .collect()
+}
+
+fn searchable_text(card: &UiCard) -> String {
+    let due = card
+        .due_date
+        .map(|date| {
+            format!(
+                "{} {} {} {}",
+                date.format("%Y-%m-%d"),
+                date.format("%b %-d"),
+                date.format("%B %-d"),
+                date.format("%Y%m%d"),
+            )
+            .to_lowercase()
+        })
+        .unwrap_or_default();
+    let tags = if card.tags.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", card.tags.join(" ").to_lowercase())
+    };
+
+    format!("{} {}{}", card.title.to_lowercase(), due, tags)
+}
+
+fn fuzzy_match(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+
+    let mut needle_chars = needle.chars();
+    let Some(mut current) = needle_chars.next() else {
+        return true;
+    };
+
+    for ch in haystack.chars() {
+        if ch == current {
+            if let Some(next) = needle_chars.next() {
+                current = next;
+            } else {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 fn weekday_from_monday(day: Weekday) -> u32 {
     match day {
         Weekday::Mon => 1,
@@ -375,5 +522,78 @@ fn weekday_from_monday(day: Weekday) -> u32 {
         Weekday::Fri => 5,
         Weekday::Sat => 6,
         Weekday::Sun => 7,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+
+    use super::{AppState, UiColumn};
+    use crate::domain::{Card, CardId, Column};
+
+    fn card(title: &str, tags: Vec<&str>, due_date: Option<chrono::NaiveDate>) -> Card {
+        Card {
+            id: CardId::new(),
+            title: title.to_string(),
+            column: Column::Today,
+            position: 0,
+            tags: tags.into_iter().map(ToString::to_string).collect(),
+            due_date,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            done_at: None,
+            archived: false,
+            blocked: false,
+        }
+    }
+
+    #[test]
+    fn fuzzy_search_matches_title() {
+        let cards = vec![
+            card("Write weekly review", vec!["planning"], None),
+            card("Buy groceries", vec!["home"], None),
+        ];
+        let mut app = AppState::from_domain_cards(cards);
+
+        app.set_search_query("wrrv".to_string());
+
+        assert_eq!(app.column_len(UiColumn::Today), 1);
+        assert_eq!(
+            app.cards_in_column(UiColumn::Today)[0].title,
+            "Write weekly review"
+        );
+    }
+
+    #[test]
+    fn fuzzy_search_matches_tags() {
+        let cards = vec![
+            card("Fix parser", vec!["backend", "urgent"], None),
+            card("Email professor", vec!["school"], None),
+        ];
+        let mut app = AppState::from_domain_cards(cards);
+
+        app.set_search_query("urg".to_string());
+
+        assert_eq!(app.column_len(UiColumn::Today), 1);
+        assert_eq!(app.cards_in_column(UiColumn::Today)[0].title, "Fix parser");
+    }
+
+    #[test]
+    fn fuzzy_search_matches_due_date() {
+        let cards = vec![
+            card(
+                "Pay rent",
+                vec!["finance"],
+                Some(chrono::NaiveDate::from_ymd_opt(2026, 3, 12).expect("valid date")),
+            ),
+            card("Water plants", vec!["home"], None),
+        ];
+        let mut app = AppState::from_domain_cards(cards);
+
+        app.set_search_query("2026-03-12".to_string());
+
+        assert_eq!(app.column_len(UiColumn::Today), 1);
+        assert_eq!(app.cards_in_column(UiColumn::Today)[0].title, "Pay rent");
     }
 }
