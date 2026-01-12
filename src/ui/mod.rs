@@ -239,11 +239,9 @@ fn handle_insert_with_title(
     let parsed = parse_task_input(title, Local::now().date_naive());
     let input = NewCard {
         title: parsed.title,
-        notes: None,
         column: column.to_domain(),
         position: i64::try_from(app.column_len(column)).expect("column length should fit i64"),
         due_date: parsed.due_date,
-        recurrence: None,
     };
     let card = repo.create_card(input)?;
     if !parsed.tags.is_empty() {
@@ -265,11 +263,9 @@ fn handle_insert_below_with_title(
     let target = if len == 0 { 0 } else { (selected + 1).min(len) };
     let input = NewCard {
         title: parsed.title,
-        notes: None,
         column: column.to_domain(),
         position: i64::try_from(target).expect("target position should fit i64"),
         due_date: parsed.due_date,
-        recurrence: None,
     };
     let card = repo.insert_card_at(input)?;
     if !parsed.tags.is_empty() {

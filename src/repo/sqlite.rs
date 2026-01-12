@@ -5,19 +5,15 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rusqlite::types::{Type, Value};
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params, params_from_iter};
 
-use crate::domain::{
-    Card, CardId, Column, RecurrenceFrequency, RecurrenceRule, Weekday, validate_card_title,
-};
+use crate::domain::{Card, CardId, Column, validate_card_title};
 use crate::storage::run_migrations;
 
 #[derive(Debug, Clone)]
 pub struct NewCard {
     pub title: String,
-    pub notes: Option<String>,
     pub column: Column,
     pub position: i64,
     pub due_date: Option<NaiveDate>,
-    pub recurrence: Option<RecurrenceRule>,
 }
 
 pub struct SqliteRepository {
@@ -43,18 +39,15 @@ impl SqliteRepository {
             input.position,
             now,
         )?;
-        card.notes = input.notes;
         card.due_date = input.due_date;
-        card.recurrence = input.recurrence;
 
         self.conn.execute(
             "INSERT INTO cards(
-                id, title, notes, column, position, due_date, created_at, updated_at, done_at, archived, blocked
-            ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                id, title, column, position, due_date, created_at, updated_at, done_at, archived, blocked
+            ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 card.id.to_string(),
                 card.title,
-                card.notes,
                 card.column,
                 card.position,
                 card.due_date.map(format_date),
@@ -66,10 +59,6 @@ impl SqliteRepository {
             ],
         )
         .context("failed to insert card")?;
-
-        if let Some(rule) = &card.recurrence {
-            upsert_recurrence_rule_conn(&self.conn, card.id, rule)?;
-        }
 
         Ok(card)
     }
@@ -83,9 +72,7 @@ impl SqliteRepository {
             input.position,
             now,
         )?;
-        card.notes = input.notes;
         card.due_date = input.due_date;
-        card.recurrence = input.recurrence;
 
         let tx = self
             .conn
@@ -102,12 +89,11 @@ impl SqliteRepository {
 
         tx.execute(
             "INSERT INTO cards(
-                id, title, notes, column, position, due_date, created_at, updated_at, done_at, archived, blocked
-            ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                id, title, column, position, due_date, created_at, updated_at, done_at, archived, blocked
+            ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 card.id.to_string(),
                 card.title,
-                card.notes,
                 card.column,
                 card.position,
                 card.due_date.map(format_date),
@@ -120,10 +106,6 @@ impl SqliteRepository {
         )
         .context("failed inserting card in insert-at")?;
 
-        if let Some(rule) = &card.recurrence {
-            upsert_recurrence_rule_tx(&tx, card.id, rule)?;
-        }
-
         tx.commit()
             .context("failed to commit insert-at transaction")?;
         Ok(card)
@@ -134,7 +116,7 @@ impl SqliteRepository {
             .conn
             .query_row(
                 "SELECT
-                    id, title, notes, column, position, due_date,
+                    id, title, column, position, due_date,
                     created_at, updated_at, done_at, archived, blocked
                  FROM cards
                  WHERE id = ?1",
@@ -152,7 +134,7 @@ impl SqliteRepository {
             .conn
             .prepare(
                 "SELECT
-                    id, title, notes, column, position, due_date,
+                    id, title, column, position, due_date,
                     created_at, updated_at, done_at, archived, blocked
                  FROM cards
                  WHERE column = ?1 AND archived = 0
@@ -182,18 +164,6 @@ impl SqliteRepository {
                 params![title, now, id.to_string()],
             )
             .context("failed to update title")?;
-        ensure_row_updated(updated, id)
-    }
-
-    pub fn update_notes(&mut self, id: CardId, notes: Option<String>) -> Result<()> {
-        let now = Utc::now().to_rfc3339();
-        let updated = self
-            .conn
-            .execute(
-                "UPDATE cards SET notes = ?1, updated_at = ?2 WHERE id = ?3",
-                params![notes, now, id.to_string()],
-            )
-            .context("failed to update notes")?;
         ensure_row_updated(updated, id)
     }
 
@@ -303,65 +273,20 @@ impl SqliteRepository {
         Ok(())
     }
 
-    pub fn set_recurrence(&mut self, id: CardId, recurrence: Option<RecurrenceRule>) -> Result<()> {
-        let tx = self
-            .conn
-            .transaction()
-            .context("failed to begin recurrence transaction")?;
-
-        let exists = fetch_card_location(&tx, id)?.is_some();
-        if !exists {
-            anyhow::bail!("card not found: {id}");
-        }
-
-        match recurrence {
-            Some(rule) => upsert_recurrence_rule_tx(&tx, id, &rule)?,
-            None => {
-                tx.execute(
-                    "DELETE FROM recurrence_rules WHERE card_id = ?1",
-                    [id.to_string()],
-                )
-                .context("failed clearing recurrence rule")?;
-            }
-        }
-
-        tx.execute(
-            "UPDATE cards SET updated_at = ?1 WHERE id = ?2",
-            [Utc::now().to_rfc3339(), id.to_string()],
-        )
-        .context("failed updating card timestamp after recurrence change")?;
-
-        tx.commit()
-            .context("failed to commit recurrence transaction")?;
-        Ok(())
-    }
-
-    pub fn complete_card(&mut self, id: CardId, done_position: i64) -> Result<Option<Card>> {
+    pub fn complete_card(&mut self, id: CardId, done_position: i64) -> Result<()> {
         let tx = self
             .conn
             .transaction()
             .context("failed to begin completion transaction")?;
-
-        let seed = fetch_completion_seed(&tx, id)?
+        let (source_column, source_position) = fetch_card_location(&tx, id)?
             .with_context(|| format!("card not found for completion: {id}"))?;
-        let recurrence = fetch_recurrence_rule_tx(&tx, id)?;
 
-        let now = Utc::now();
-        let now_rfc3339 = now.to_rfc3339();
-        let completed_on = now.date_naive();
-
-        if seed.column == Column::Done {
-            reorder_within_column(
-                &tx,
-                id,
-                seed.column,
-                seed.position,
-                done_position,
-                &now_rfc3339,
-            )?;
+        let now = Utc::now().to_rfc3339();
+        if source_column == Column::Done {
+            reorder_within_column(&tx, id, source_column, source_position, done_position, &now)?;
             tx.execute(
                 "UPDATE cards SET done_at = COALESCE(done_at, ?1), updated_at = ?1 WHERE id = ?2",
-                params![now_rfc3339, id.to_string()],
+                params![now, id.to_string()],
             )
             .context("failed updating done timestamp for already-done card")?;
         } else {
@@ -369,7 +294,7 @@ impl SqliteRepository {
                 "UPDATE cards
                  SET position = position - 1
                  WHERE column = ?1 AND archived = 0 AND position > ?2",
-                params![seed.column, seed.position],
+                params![source_column, source_position],
             )
             .context("failed compacting source column before completion")?;
 
@@ -385,70 +310,14 @@ impl SqliteRepository {
                 "UPDATE cards
                  SET column = ?1, position = ?2, updated_at = ?3, done_at = ?4
                  WHERE id = ?5",
-                params![
-                    Column::Done,
-                    done_position,
-                    now_rfc3339,
-                    now_rfc3339,
-                    id.to_string()
-                ],
+                params![Column::Done, done_position, now, now, id.to_string()],
             )
             .context("failed moving completed card to done")?;
         }
 
-        let spawned_id = if let Some(rule) = recurrence {
-            let base_date = seed.due_date.unwrap_or(completed_on);
-            let mut next_due = rule.next_due_date(base_date)?;
-            while next_due <= completed_on {
-                next_due = rule.next_due_date(next_due)?;
-            }
-
-            let spawn_column = if next_due <= completed_on + Duration::days(7) {
-                Column::ThisWeek
-            } else {
-                Column::Backlog
-            };
-            let spawn_position = next_position_in_column(&tx, spawn_column)?;
-            let spawn_id = CardId::new();
-
-            tx.execute(
-                "INSERT INTO cards(
-                    id, title, notes, column, position, due_date,
-                    created_at, updated_at, done_at, archived, blocked
-                 ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, 0, 0)",
-                params![
-                    spawn_id.to_string(),
-                    seed.title,
-                    seed.notes,
-                    spawn_column,
-                    spawn_position,
-                    format_date(next_due),
-                    now_rfc3339,
-                    now_rfc3339,
-                ],
-            )
-            .context("failed creating spawned recurrence card")?;
-
-            tx.execute(
-                "INSERT INTO card_tags(card_id, tag_id)
-                 SELECT ?1, tag_id FROM card_tags WHERE card_id = ?2",
-                params![spawn_id.to_string(), id.to_string()],
-            )
-            .context("failed copying tags to spawned recurrence card")?;
-
-            upsert_recurrence_rule_tx(&tx, spawn_id, &rule)?;
-            Some(spawn_id)
-        } else {
-            None
-        };
-
         tx.commit()
             .context("failed to commit completion transaction")?;
-
-        spawned_id
-            .map(|spawn_id| self.get_card(spawn_id))
-            .transpose()
-            .map(|v| v.flatten())
+        Ok(())
     }
 
     pub fn set_tags(&mut self, id: CardId, tags: Vec<String>) -> Result<()> {
@@ -528,7 +397,7 @@ impl SqliteRepository {
             .join(", ");
         let sql = format!(
             "SELECT
-                c.id, c.title, c.notes, c.column, c.position, c.due_date,
+                c.id, c.title, c.column, c.position, c.due_date,
                 c.created_at, c.updated_at, c.done_at, c.archived, c.blocked
              FROM cards c
              JOIN card_tags ct ON ct.card_id = c.id
@@ -599,7 +468,6 @@ impl SqliteRepository {
 
     fn hydrate_card(&self, mut card: Card) -> Result<Card> {
         card.tags = fetch_tags_for_card_conn(&self.conn, card.id)?;
-        card.recurrence = fetch_recurrence_rule_conn(&self.conn, card.id)?;
         Ok(card)
     }
 
@@ -608,7 +476,7 @@ impl SqliteRepository {
             .conn
             .prepare(
                 "SELECT
-                    id, title, notes, column, position, due_date,
+                    id, title, column, position, due_date,
                     created_at, updated_at, done_at, archived, blocked
                  FROM cards
                  WHERE archived = 0
@@ -626,15 +494,6 @@ impl SqliteRepository {
             .map(|card| self.hydrate_card(card))
             .collect()
     }
-}
-
-#[derive(Debug)]
-struct CompletionSeed {
-    title: String,
-    notes: Option<String>,
-    due_date: Option<NaiveDate>,
-    column: Column,
-    position: i64,
 }
 
 fn bool_to_int(value: bool) -> i64 {
@@ -675,20 +534,18 @@ fn parse_optional_date(raw: Option<String>) -> rusqlite::Result<Option<NaiveDate
 fn row_to_card(row: &Row<'_>) -> rusqlite::Result<Card> {
     let id = parse_card_id(row.get::<_, String>(0)?)?;
     let title = row.get(1)?;
-    let notes = row.get(2)?;
-    let column = row.get(3)?;
-    let position = row.get(4)?;
-    let due_date = parse_optional_date(row.get(5)?)?;
-    let created_at = parse_datetime(row.get(6)?)?;
-    let updated_at = parse_datetime(row.get(7)?)?;
-    let done_at = parse_optional_datetime(row.get(8)?)?;
-    let archived = int_to_bool(row.get(9)?);
-    let blocked = int_to_bool(row.get(10)?);
+    let column = row.get(2)?;
+    let position = row.get(3)?;
+    let due_date = parse_optional_date(row.get(4)?)?;
+    let created_at = parse_datetime(row.get(5)?)?;
+    let updated_at = parse_datetime(row.get(6)?)?;
+    let done_at = parse_optional_datetime(row.get(7)?)?;
+    let archived = int_to_bool(row.get(8)?);
+    let blocked = int_to_bool(row.get(9)?);
 
     Ok(Card {
         id,
         title,
-        notes,
         column,
         position,
         tags: Vec::new(),
@@ -697,7 +554,6 @@ fn row_to_card(row: &Row<'_>) -> rusqlite::Result<Card> {
         updated_at,
         done_at,
         archived,
-        recurrence: None,
         blocked,
     })
 }
@@ -723,28 +579,6 @@ fn fetch_card_location(tx: &Transaction<'_>, id: CardId) -> Result<Option<(Colum
         )
         .optional()
         .context("failed fetching card location")?;
-    Ok(result)
-}
-
-fn fetch_completion_seed(tx: &Transaction<'_>, id: CardId) -> Result<Option<CompletionSeed>> {
-    let result = tx
-        .query_row(
-            "SELECT title, notes, due_date, column, position
-             FROM cards
-             WHERE id = ?1 AND archived = 0",
-            [id.to_string()],
-            |row| {
-                Ok(CompletionSeed {
-                    title: row.get(0)?,
-                    notes: row.get(1)?,
-                    due_date: parse_optional_date(row.get(2)?)?,
-                    column: row.get(3)?,
-                    position: row.get(4)?,
-                })
-            },
-        )
-        .optional()
-        .context("failed fetching completion seed")?;
     Ok(result)
 }
 
@@ -787,138 +621,6 @@ fn reorder_within_column(
     Ok(())
 }
 
-fn upsert_recurrence_rule_conn(
-    conn: &Connection,
-    card_id: CardId,
-    rule: &RecurrenceRule,
-) -> Result<()> {
-    rule.validate()?;
-    let days_of_week = rule
-        .days_of_week
-        .as_ref()
-        .map(|days| serialize_weekdays(days))
-        .transpose()?;
-
-    conn.execute(
-        "INSERT INTO recurrence_rules(card_id, frequency, interval, days_of_week, day_of_month)
-         VALUES(?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(card_id) DO UPDATE SET
-            frequency = excluded.frequency,
-            interval = excluded.interval,
-            days_of_week = excluded.days_of_week,
-            day_of_month = excluded.day_of_month",
-        params![
-            card_id.to_string(),
-            rule.frequency,
-            rule.interval,
-            days_of_week,
-            rule.day_of_month,
-        ],
-    )
-    .context("failed upserting recurrence rule")?;
-
-    Ok(())
-}
-
-fn upsert_recurrence_rule_tx(
-    tx: &Transaction<'_>,
-    card_id: CardId,
-    rule: &RecurrenceRule,
-) -> Result<()> {
-    rule.validate()?;
-    let days_of_week = rule
-        .days_of_week
-        .as_ref()
-        .map(|days| serialize_weekdays(days))
-        .transpose()?;
-
-    tx.execute(
-        "INSERT INTO recurrence_rules(card_id, frequency, interval, days_of_week, day_of_month)
-         VALUES(?1, ?2, ?3, ?4, ?5)
-         ON CONFLICT(card_id) DO UPDATE SET
-            frequency = excluded.frequency,
-            interval = excluded.interval,
-            days_of_week = excluded.days_of_week,
-            day_of_month = excluded.day_of_month",
-        params![
-            card_id.to_string(),
-            rule.frequency,
-            rule.interval,
-            days_of_week,
-            rule.day_of_month,
-        ],
-    )
-    .context("failed upserting recurrence rule in transaction")?;
-
-    Ok(())
-}
-
-fn fetch_recurrence_rule_conn(conn: &Connection, id: CardId) -> Result<Option<RecurrenceRule>> {
-    let rule = conn
-        .query_row(
-            "SELECT frequency, interval, days_of_week, day_of_month
-             FROM recurrence_rules
-             WHERE card_id = ?1",
-            [id.to_string()],
-            recurrence_rule_from_row,
-        )
-        .optional()
-        .context("failed fetching recurrence rule")?;
-    Ok(rule)
-}
-
-fn fetch_recurrence_rule_tx(tx: &Transaction<'_>, id: CardId) -> Result<Option<RecurrenceRule>> {
-    let rule = tx
-        .query_row(
-            "SELECT frequency, interval, days_of_week, day_of_month
-             FROM recurrence_rules
-             WHERE card_id = ?1",
-            [id.to_string()],
-            recurrence_rule_from_row,
-        )
-        .optional()
-        .context("failed fetching recurrence rule")?;
-    Ok(rule)
-}
-
-fn recurrence_rule_from_row(row: &Row<'_>) -> rusqlite::Result<RecurrenceRule> {
-    let frequency: RecurrenceFrequency = row.get(0)?;
-    let interval: i64 = row.get(1)?;
-    let days_raw: Option<String> = row.get(2)?;
-    let day_of_month: Option<u8> = row.get(3)?;
-    let days_of_week = days_raw
-        .map(|raw| deserialize_weekdays(&raw))
-        .transpose()
-        .map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(
-                0,
-                Type::Text,
-                Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    err.to_string(),
-                )),
-            )
-        })?;
-
-    let rule = RecurrenceRule {
-        frequency,
-        interval,
-        days_of_week,
-        day_of_month,
-    };
-    rule.validate()
-        .map_err(|err| rusqlite::Error::FromSqlConversionFailure(0, Type::Text, Box::new(err)))?;
-    Ok(rule)
-}
-
-fn serialize_weekdays(days: &[Weekday]) -> Result<String> {
-    serde_json::to_string(days).context("failed serializing weekdays")
-}
-
-fn deserialize_weekdays(raw: &str) -> Result<Vec<Weekday>> {
-    serde_json::from_str(raw).context("failed deserializing weekdays")
-}
-
 fn fetch_tags_for_card_conn(conn: &Connection, id: CardId) -> Result<Vec<String>> {
     let mut stmt = conn
         .prepare(
@@ -935,17 +637,6 @@ fn fetch_tags_for_card_conn(conn: &Connection, id: CardId) -> Result<Vec<String>
         .context("failed querying card tags")?;
     let tags: rusqlite::Result<Vec<String>> = iter.collect();
     Ok(tags.context("failed parsing card tags")?)
-}
-
-fn next_position_in_column(tx: &Transaction<'_>, column: Column) -> Result<i64> {
-    let position = tx
-        .query_row(
-            "SELECT COALESCE(MAX(position) + 1, 0) FROM cards WHERE column = ?1 AND archived = 0",
-            [column],
-            |row| row.get(0),
-        )
-        .context("failed computing next column position")?;
-    Ok(position)
 }
 
 fn normalize_tags(tags: Vec<String>) -> Vec<String> {
@@ -968,7 +659,7 @@ mod tests {
     use chrono::{Duration, NaiveDate, Utc};
     use rusqlite::Connection;
 
-    use crate::domain::{Column, RecurrenceFrequency, RecurrenceRule};
+    use crate::domain::Column;
 
     use super::{NewCard, SqliteRepository};
 
@@ -980,21 +671,17 @@ mod tests {
         let first = repo
             .create_card(NewCard {
                 title: "Card A".to_string(),
-                notes: None,
                 column: Column::Backlog,
                 position: 0,
                 due_date: Some(NaiveDate::from_ymd_opt(2026, 3, 9).expect("valid date")),
-                recurrence: None,
             })
             .expect("card create should succeed");
         let second = repo
             .create_card(NewCard {
                 title: "Card B".to_string(),
-                notes: Some("note".to_string()),
                 column: Column::Backlog,
                 position: 1,
                 due_date: None,
-                recurrence: None,
             })
             .expect("card create should succeed");
 
@@ -1020,21 +707,17 @@ mod tests {
         let first = repo
             .create_card(NewCard {
                 title: "First".to_string(),
-                notes: None,
                 column: Column::Backlog,
                 position: 0,
                 due_date: None,
-                recurrence: None,
             })
             .expect("card create should succeed");
         let second = repo
             .create_card(NewCard {
                 title: "Second".to_string(),
-                notes: None,
                 column: Column::Backlog,
                 position: 1,
                 due_date: None,
-                recurrence: None,
             })
             .expect("card create should succeed");
 
@@ -1069,70 +752,31 @@ mod tests {
     }
 
     #[test]
-    fn completing_recurring_card_spawns_next_card() {
+    fn completing_card_moves_it_to_done() {
         let conn = Connection::open_in_memory().expect("in-memory db should open");
         let mut repo = SqliteRepository::new(conn).expect("repo should initialize");
 
-        let today = Utc::now().date_naive();
-        let original = repo
+        let card = repo
             .create_card(NewCard {
                 title: "Daily review".to_string(),
-                notes: Some("Keep this short".to_string()),
                 column: Column::Today,
                 position: 0,
-                due_date: Some(today),
-                recurrence: Some(RecurrenceRule {
-                    frequency: RecurrenceFrequency::Daily,
-                    interval: 1,
-                    days_of_week: None,
-                    day_of_month: None,
-                }),
+                due_date: Some(Utc::now().date_naive()),
             })
             .expect("card create should succeed");
 
-        repo.connection()
-            .execute("INSERT INTO tags(name) VALUES (?1)", ["p1"])
-            .expect("tag insert should succeed");
-        let tag_id: i64 = repo
-            .connection()
-            .query_row("SELECT id FROM tags WHERE name = ?1", ["p1"], |row| {
-                row.get(0)
-            })
-            .expect("tag query should succeed");
-        repo.connection()
-            .execute(
-                "INSERT INTO card_tags(card_id, tag_id) VALUES (?1, ?2)",
-                rusqlite::params![original.id.to_string(), tag_id],
-            )
-            .expect("card_tags insert should succeed");
-
-        let spawned = repo
-            .complete_card(original.id, 0)
-            .expect("completion should succeed")
-            .expect("recurrence should spawn a card");
+        repo.set_tags(card.id, vec!["p1".to_string()])
+            .expect("set_tags should succeed");
+        repo.complete_card(card.id, 0)
+            .expect("completion should succeed");
 
         let completed = repo
-            .get_card(original.id)
+            .get_card(card.id)
             .expect("get should succeed")
-            .expect("original should exist");
+            .expect("card should exist");
         assert_eq!(completed.column, Column::Done);
         assert!(completed.done_at.is_some());
-
-        assert_eq!(spawned.title, original.title);
-        assert_eq!(spawned.notes, original.notes);
-        assert_eq!(spawned.recurrence, original.recurrence);
-        assert_eq!(spawned.due_date, Some(today + Duration::days(1)));
-        assert_eq!(spawned.column, Column::ThisWeek);
-
-        let tag_count: i64 = repo
-            .connection()
-            .query_row(
-                "SELECT COUNT(*) FROM card_tags WHERE card_id = ?1",
-                [spawned.id.to_string()],
-                |row| row.get(0),
-            )
-            .expect("tag count should succeed");
-        assert_eq!(tag_count, 1);
+        assert_eq!(completed.tags, vec!["p1".to_string()]);
     }
 
     #[test]
@@ -1143,21 +787,17 @@ mod tests {
         let first = repo
             .create_card(NewCard {
                 title: "Card one".to_string(),
-                notes: None,
                 column: Column::Backlog,
                 position: 0,
                 due_date: None,
-                recurrence: None,
             })
             .expect("card create should succeed");
         let second = repo
             .create_card(NewCard {
                 title: "Card two".to_string(),
-                notes: None,
                 column: Column::Backlog,
                 position: 1,
                 due_date: None,
-                recurrence: None,
             })
             .expect("card create should succeed");
 
@@ -1192,21 +832,17 @@ mod tests {
         let old_done = repo
             .create_card(NewCard {
                 title: "Old done".to_string(),
-                notes: None,
                 column: Column::Done,
                 position: 0,
                 due_date: None,
-                recurrence: None,
             })
             .expect("card create should succeed");
         let fresh_done = repo
             .create_card(NewCard {
                 title: "Fresh done".to_string(),
-                notes: None,
                 column: Column::Done,
                 position: 1,
                 due_date: None,
-                recurrence: None,
             })
             .expect("card create should succeed");
 

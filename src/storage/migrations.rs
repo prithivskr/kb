@@ -16,7 +16,6 @@ const MIGRATION_001_CARDS: Migration = Migration {
         CREATE TABLE cards (
             id         TEXT PRIMARY KEY NOT NULL,
             title      TEXT NOT NULL CHECK(length(title) > 0 AND length(title) <= 200),
-            notes      TEXT,
             column     TEXT NOT NULL CHECK(column IN ('Backlog', 'ThisWeek', 'Today', 'Done')),
             position   INTEGER NOT NULL,
             due_date   TEXT,
@@ -52,31 +51,7 @@ const MIGRATION_002_TAGS: Migration = Migration {
         CREATE INDEX idx_card_tags_tag_id ON card_tags(tag_id);
     ",
 };
-const MIGRATION_003_RECURRENCE_RULES: Migration = Migration {
-    version: 3,
-    name: "create_recurrence_rules",
-    sql: "
-        CREATE TABLE recurrence_rules (
-            card_id      TEXT PRIMARY KEY REFERENCES cards(id) ON DELETE CASCADE,
-            frequency    TEXT NOT NULL CHECK(frequency IN ('Daily', 'Weekly', 'Monthly')),
-            interval     INTEGER NOT NULL CHECK(interval >= 1),
-            days_of_week TEXT,
-            day_of_month INTEGER CHECK(day_of_month BETWEEN 1 AND 31),
-            CHECK (
-                (frequency = 'Daily' AND days_of_week IS NULL AND day_of_month IS NULL) OR
-                (frequency = 'Weekly' AND days_of_week IS NOT NULL AND day_of_month IS NULL) OR
-                (frequency = 'Monthly' AND days_of_week IS NULL AND day_of_month IS NOT NULL)
-            )
-        );
-
-        CREATE INDEX idx_recurrence_frequency ON recurrence_rules(frequency);
-    ",
-};
-const MIGRATIONS: &[Migration] = &[
-    MIGRATION_001_CARDS,
-    MIGRATION_002_TAGS,
-    MIGRATION_003_RECURRENCE_RULES,
-];
+const MIGRATIONS: &[Migration] = &[MIGRATION_001_CARDS, MIGRATION_002_TAGS];
 
 pub fn run_migrations(conn: &mut Connection) -> Result<()> {
     ensure_schema_migrations_table(conn)?;
@@ -172,7 +147,7 @@ mod tests {
                 row.get(0)
             })
             .expect("query should succeed");
-        assert_eq!(applied_count, 3);
+        assert_eq!(applied_count, 2);
 
         let tags_table_count: i64 = conn
             .query_row(
@@ -191,14 +166,5 @@ mod tests {
             )
             .expect("query should succeed");
         assert_eq!(card_tags_table_count, 1);
-
-        let recurrence_table_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='recurrence_rules'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("query should succeed");
-        assert_eq!(recurrence_table_count, 1);
     }
 }

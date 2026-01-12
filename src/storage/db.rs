@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 const APP_NAME: &str = "kanban";
-const DB_FILENAME: &str = "kanban.db";
+const DB_FILENAME: &str = "kanban-v2.db";
 
 pub fn default_db_path() -> Result<PathBuf> {
     if let Some(base) = dirs::data_local_dir() {

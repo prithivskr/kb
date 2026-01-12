@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use chrono::{Duration, Utc};
-use kb::domain::{Column, RecurrenceFrequency, RecurrenceRule};
+use kb::domain::Column;
 use kb::repo::{NewCard, SqliteRepository};
 use kb::storage::{open_connection, run_migrations};
 
@@ -22,14 +22,14 @@ fn migrations_are_idempotent() {
             row.get(0)
         })
         .expect("count query should succeed");
-    assert_eq!(migration_count, 3);
+    assert_eq!(migration_count, 2);
 
     drop(conn);
     std::fs::remove_file(path).expect("temp db should be removable");
 }
 
 #[test]
-fn recurring_completion_spawns_card_with_tags_and_rule() {
+fn completion_moves_card_to_done_and_preserves_tags() {
     let conn = rusqlite::Connection::open_in_memory().expect("in-memory db should open");
     let mut repo = SqliteRepository::new(conn).expect("repo should initialize");
 
@@ -37,31 +37,17 @@ fn recurring_completion_spawns_card_with_tags_and_rule() {
     let original = repo
         .create_card(NewCard {
             title: "Daily planning".to_string(),
-            notes: Some("15m max".to_string()),
             column: Column::Today,
             position: 0,
             due_date: Some(today),
-            recurrence: Some(RecurrenceRule {
-                frequency: RecurrenceFrequency::Daily,
-                interval: 1,
-                days_of_week: None,
-                day_of_month: None,
-            }),
         })
         .expect("card create should succeed");
 
     repo.set_tags(original.id, vec!["routine".to_string(), "p1".to_string()])
         .expect("set_tags should succeed");
 
-    let spawned = repo
-        .complete_card(original.id, 0)
-        .expect("complete_card should succeed")
-        .expect("recurring card should spawn next card");
-
-    assert_eq!(spawned.column, Column::ThisWeek);
-    assert_eq!(spawned.due_date, Some(today + Duration::days(1)));
-    assert_eq!(spawned.recurrence, original.recurrence);
-    assert_eq!(spawned.tags, vec!["p1".to_string(), "routine".to_string()]);
+    repo.complete_card(original.id, 0)
+        .expect("complete_card should succeed");
 
     let completed = repo
         .get_card(original.id)
@@ -69,6 +55,10 @@ fn recurring_completion_spawns_card_with_tags_and_rule() {
         .expect("card should still exist");
     assert_eq!(completed.column, Column::Done);
     assert!(completed.done_at.is_some());
+    assert_eq!(
+        completed.tags,
+        vec!["p1".to_string(), "routine".to_string()]
+    );
 }
 
 #[test]
@@ -79,21 +69,17 @@ fn archive_threshold_and_archive_all_work_together() {
     let old_done = repo
         .create_card(NewCard {
             title: "Old done".to_string(),
-            notes: None,
             column: Column::Done,
             position: 0,
             due_date: None,
-            recurrence: None,
         })
         .expect("card create should succeed");
     let fresh_done = repo
         .create_card(NewCard {
             title: "Fresh done".to_string(),
-            notes: None,
             column: Column::Done,
             position: 1,
             due_date: None,
-            recurrence: None,
         })
         .expect("card create should succeed");
 
