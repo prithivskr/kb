@@ -499,3 +499,77 @@ fn handle_search_prompt_key(key: KeyEvent, app: &mut app::AppState) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use super::app::UiAction;
+    use super::map_key_to_action;
+
+    #[test]
+    fn double_shift_a_maps_to_archive_done() {
+        let mut pending_g = false;
+        let mut pending_shift_a = false;
+
+        let first = map_key_to_action(
+            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE),
+            &mut pending_g,
+            &mut pending_shift_a,
+        );
+        let second = map_key_to_action(
+            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE),
+            &mut pending_g,
+            &mut pending_shift_a,
+        );
+
+        assert_eq!(first, UiAction::None);
+        assert_eq!(second, UiAction::ArchiveDone);
+    }
+
+    #[test]
+    fn double_g_still_maps_to_jump_top() {
+        let mut pending_g = false;
+        let mut pending_shift_a = false;
+
+        let first = map_key_to_action(
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+            &mut pending_g,
+            &mut pending_shift_a,
+        );
+        let second = map_key_to_action(
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+            &mut pending_g,
+            &mut pending_shift_a,
+        );
+
+        assert_eq!(first, UiAction::None);
+        assert_eq!(second, UiAction::JumpTop);
+    }
+
+    #[test]
+    fn sequence_switch_clears_previous_pending_state() {
+        let mut pending_g = false;
+        let mut pending_shift_a = false;
+
+        let first = map_key_to_action(
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+            &mut pending_g,
+            &mut pending_shift_a,
+        );
+        let second = map_key_to_action(
+            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE),
+            &mut pending_g,
+            &mut pending_shift_a,
+        );
+        let third = map_key_to_action(
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
+            &mut pending_g,
+            &mut pending_shift_a,
+        );
+
+        assert_eq!(first, UiAction::None);
+        assert_eq!(second, UiAction::None);
+        assert_eq!(third, UiAction::None);
+    }
+}
