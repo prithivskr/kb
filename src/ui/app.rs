@@ -107,6 +107,7 @@ pub struct SearchPromptState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiAction {
     Quit,
+    ClearSearch,
     ColumnPrev,
     ColumnNext,
     CursorUp,
@@ -223,6 +224,7 @@ impl AppState {
             }
             UiAction::Insert
             | UiAction::Search
+            | UiAction::ClearSearch
             | UiAction::InsertBelow
             | UiAction::MoveLeft
             | UiAction::MoveRight

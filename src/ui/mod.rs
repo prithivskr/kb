@@ -96,6 +96,12 @@ fn handle_action(
             app.start_insert_prompt(app::InsertPlacement::End);
             Ok(false)
         }
+        app::UiAction::ClearSearch => {
+            app.disarm_delete();
+            app.set_search_query(String::new());
+            app.clear_status_message();
+            Ok(false)
+        }
         app::UiAction::InsertBelow => {
             app.disarm_delete();
             app.clear_status_message();
@@ -201,7 +207,8 @@ fn map_key_to_action(key: KeyEvent, pending_g: &mut bool) -> app::UiAction {
 
     *pending_g = false;
     match key.code {
-        KeyCode::Char('q') | KeyCode::Esc => app::UiAction::Quit,
+        KeyCode::Char('q') => app::UiAction::Quit,
+        KeyCode::Esc => app::UiAction::ClearSearch,
         KeyCode::Char('a') => app::UiAction::Insert,
         KeyCode::Char('i') => app::UiAction::InsertBelow,
         KeyCode::Char('/') => app::UiAction::Search,
@@ -439,7 +446,8 @@ fn handle_search_prompt_key(key: KeyEvent, app: &mut app::AppState) {
     match key.code {
         KeyCode::Esc => {
             app.cancel_search_prompt();
-            app.set_status_message("search canceled");
+            app.set_search_query(String::new());
+            app.clear_status_message();
         }
         KeyCode::Backspace => {
             app.pop_search_char();

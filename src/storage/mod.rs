@@ -1,5 +1,3 @@
-//! SQLite storage, migrations, and connection management.
-
 mod db;
 mod migrations;
 
