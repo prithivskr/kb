@@ -103,6 +103,18 @@ fn handle_action(
             app.clear_status_message();
             Ok(false)
         }
+        app::UiAction::ArchiveDone => {
+            app.disarm_delete();
+            let archived = repo.archive_all_done()?;
+            reload_board_state(repo, app)?;
+            if archived == 0 {
+                app.set_status_message("no done cards to archive");
+            } else {
+                let noun = if archived == 1 { "card" } else { "cards" };
+                app.set_status_message(format!("archived {archived} done {noun}"));
+            }
+            Ok(false)
+        }
         app::UiAction::InsertBelow => {
             app.disarm_delete();
             app.clear_status_message();
