@@ -154,6 +154,30 @@ impl SqliteRepository {
             .collect()
     }
 
+    pub fn list_archived_cards(&self) -> Result<Vec<Card>> {
+        let mut stmt = self
+            .conn
+            .prepare(
+                "SELECT
+                    id, title, column, position, due_date,
+                    created_at, updated_at, done_at, archived, blocked
+                 FROM cards
+                 WHERE archived = 1
+                 ORDER BY COALESCE(done_at, updated_at) DESC, created_at DESC",
+            )
+            .context("failed to prepare list_archived_cards statement")?;
+
+        let iter = stmt
+            .query_map([], row_to_card)
+            .context("failed listing archived cards")?;
+        let cards: rusqlite::Result<Vec<Card>> = iter.collect();
+        cards
+            .context("failed parsing archived cards from query")?
+            .into_iter()
+            .map(|card| self.hydrate_card(card))
+            .collect()
+    }
+
     pub fn update_title(&mut self, id: CardId, title: impl Into<String>) -> Result<()> {
         let title = validate_card_title(title.into())?;
         let now = Utc::now().to_rfc3339();
@@ -799,5 +823,64 @@ mod tests {
 
         let archived_rest = repo.archive_all_done().expect("archive-all should succeed");
         assert_eq!(archived_rest, 1);
+    }
+
+    #[test]
+    fn list_archived_cards_returns_only_archived_in_descending_recency() {
+        let conn = Connection::open_in_memory().expect("in-memory db should open");
+        let mut repo = SqliteRepository::new(conn).expect("repo should initialize");
+
+        let active = repo
+            .create_card(NewCard {
+                title: "Active".to_string(),
+                column: Column::Backlog,
+                position: 0,
+                due_date: None,
+            })
+            .expect("card create should succeed");
+        let older = repo
+            .create_card(NewCard {
+                title: "Older archived".to_string(),
+                column: Column::Done,
+                position: 0,
+                due_date: None,
+            })
+            .expect("card create should succeed");
+        let newer = repo
+            .create_card(NewCard {
+                title: "Newer archived".to_string(),
+                column: Column::Done,
+                position: 1,
+                due_date: None,
+            })
+            .expect("card create should succeed");
+
+        repo.connection()
+            .execute(
+                "UPDATE cards SET archived = 1, done_at = ?1 WHERE id = ?2",
+                rusqlite::params![
+                    (Utc::now() - Duration::days(5)).to_rfc3339(),
+                    older.id.to_string()
+                ],
+            )
+            .expect("older archive update should succeed");
+        repo.connection()
+            .execute(
+                "UPDATE cards SET archived = 1, done_at = ?1 WHERE id = ?2",
+                rusqlite::params![
+                    (Utc::now() - Duration::days(1)).to_rfc3339(),
+                    newer.id.to_string()
+                ],
+            )
+            .expect("newer archive update should succeed");
+
+        let archived = repo
+            .list_archived_cards()
+            .expect("list archived cards should succeed");
+        assert_eq!(archived.len(), 2);
+        assert_eq!(archived[0].id, newer.id);
+        assert_eq!(archived[1].id, older.id);
+        assert!(archived.iter().all(|card| card.archived));
+        assert!(!archived.iter().any(|card| card.id == active.id));
     }
 }
