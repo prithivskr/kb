@@ -108,6 +108,7 @@ pub struct SearchPromptState {
 pub enum UiAction {
     Quit,
     ClearSearch,
+    ArchiveDone,
     ColumnPrev,
     ColumnNext,
     CursorUp,
@@ -225,6 +226,7 @@ impl AppState {
             UiAction::Insert
             | UiAction::Search
             | UiAction::ClearSearch
+            | UiAction::ArchiveDone
             | UiAction::InsertBelow
             | UiAction::MoveLeft
             | UiAction::MoveRight

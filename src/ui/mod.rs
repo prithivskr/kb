@@ -52,6 +52,7 @@ fn run_event_loop(
     repo: &mut SqliteRepository,
 ) -> Result<()> {
     let mut pending_g = false;
+    let mut pending_shift_a = false;
     loop {
         terminal.draw(|frame| {
             render::render_board(frame, app);
@@ -71,7 +72,7 @@ fn run_event_loop(
                 continue;
             }
 
-            let action = map_key_to_action(key, &mut pending_g);
+            let action = map_key_to_action(key, &mut pending_g, &mut pending_shift_a);
             if action == app::UiAction::None {
                 continue;
             }
@@ -195,17 +196,33 @@ fn handle_action(
     }
 }
 
-fn map_key_to_action(key: KeyEvent, pending_g: &mut bool) -> app::UiAction {
+fn map_key_to_action(
+    key: KeyEvent,
+    pending_g: &mut bool,
+    pending_shift_a: &mut bool,
+) -> app::UiAction {
     if matches!(key.code, KeyCode::Char('g')) {
         if *pending_g {
             *pending_g = false;
             return app::UiAction::JumpTop;
         }
         *pending_g = true;
+        *pending_shift_a = false;
+        return app::UiAction::None;
+    }
+
+    if matches!(key.code, KeyCode::Char('A')) {
+        if *pending_shift_a {
+            *pending_shift_a = false;
+            return app::UiAction::ArchiveDone;
+        }
+        *pending_shift_a = true;
+        *pending_g = false;
         return app::UiAction::None;
     }
 
     *pending_g = false;
+    *pending_shift_a = false;
     match key.code {
         KeyCode::Char('q') => app::UiAction::Quit,
         KeyCode::Esc => app::UiAction::ClearSearch,
