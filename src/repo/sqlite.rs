@@ -8,6 +8,8 @@ use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 use crate::domain::{Card, CardId, Column, validate_card_title};
 use crate::storage::run_migrations;
 
+const TODAY_WIP_LIMIT: i64 = 4;
+
 #[derive(Debug, Clone)]
 pub struct NewCard {
     pub title: String,
@@ -40,6 +42,10 @@ impl SqliteRepository {
             now,
         )?;
         card.due_date = input.due_date;
+
+        if card.column == Column::Today {
+            ensure_today_has_capacity_conn(&self.conn)?;
+        }
 
         self.conn.execute(
             "INSERT INTO cards(
@@ -78,6 +84,10 @@ impl SqliteRepository {
             .conn
             .transaction()
             .context("failed to begin insert-at transaction")?;
+
+        if card.column == Column::Today {
+            ensure_today_has_capacity_tx(&tx)?;
+        }
 
         tx.execute(
             "UPDATE cards
@@ -240,6 +250,10 @@ impl SqliteRepository {
                 &now,
             )?;
         } else {
+            if target_column == Column::Today {
+                ensure_today_has_capacity_tx(&tx)?;
+            }
+
             tx.execute(
                 "UPDATE cards
                  SET position = position - 1
@@ -512,6 +526,34 @@ fn row_to_card(row: &Row<'_>) -> rusqlite::Result<Card> {
         archived,
         blocked,
     })
+}
+
+fn ensure_today_has_capacity_conn(conn: &Connection) -> Result<()> {
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM cards WHERE column = ?1 AND archived = 0",
+            [Column::Today],
+            |row| row.get(0),
+        )
+        .context("failed counting today cards")?;
+    if count >= TODAY_WIP_LIMIT {
+        anyhow::bail!("today column is full ({TODAY_WIP_LIMIT} tasks max)");
+    }
+    Ok(())
+}
+
+fn ensure_today_has_capacity_tx(tx: &Transaction<'_>) -> Result<()> {
+    let count: i64 = tx
+        .query_row(
+            "SELECT COUNT(*) FROM cards WHERE column = ?1 AND archived = 0",
+            [Column::Today],
+            |row| row.get(0),
+        )
+        .context("failed counting today cards")?;
+    if count >= TODAY_WIP_LIMIT {
+        anyhow::bail!("today column is full ({TODAY_WIP_LIMIT} tasks max)");
+    }
+    Ok(())
 }
 
 fn ensure_row_updated(updated: usize, id: CardId) -> Result<()> {
@@ -882,5 +924,64 @@ mod tests {
         assert_eq!(archived[1].id, older.id);
         assert!(archived.iter().all(|card| card.archived));
         assert!(!archived.iter().any(|card| card.id == active.id));
+    }
+
+    #[test]
+    fn today_column_hard_limit_blocks_create_insert_and_move() {
+        let conn = Connection::open_in_memory().expect("in-memory db should open");
+        let mut repo = SqliteRepository::new(conn).expect("repo should initialize");
+
+        for index in 0..4 {
+            repo.create_card(NewCard {
+                title: format!("Today {index}"),
+                column: Column::Today,
+                position: index,
+                due_date: None,
+            })
+            .expect("seed today cards should succeed");
+        }
+
+        let create_error = repo
+            .create_card(NewCard {
+                title: "Overflow create".to_string(),
+                column: Column::Today,
+                position: 4,
+                due_date: None,
+            })
+            .expect_err("create beyond limit should fail");
+        assert!(create_error.to_string().contains("today column is full"));
+
+        let insert_error = repo
+            .insert_card_at(NewCard {
+                title: "Overflow insert".to_string(),
+                column: Column::Today,
+                position: 0,
+                due_date: None,
+            })
+            .expect_err("insert beyond limit should fail");
+        assert!(insert_error.to_string().contains("today column is full"));
+
+        let backlog = repo
+            .create_card(NewCard {
+                title: "Backlog card".to_string(),
+                column: Column::Backlog,
+                position: 0,
+                due_date: None,
+            })
+            .expect("backlog create should succeed");
+        let move_error = repo
+            .move_card(backlog.id, Column::Today, 0)
+            .expect_err("move into full today should fail");
+        assert!(move_error.to_string().contains("today column is full"));
+
+        let today_cards = repo
+            .list_cards_in_column(Column::Today)
+            .expect("today list should succeed");
+        assert_eq!(today_cards.len(), 4);
+        let backlog_cards = repo
+            .list_cards_in_column(Column::Backlog)
+            .expect("backlog list should succeed");
+        assert_eq!(backlog_cards.len(), 1);
+        assert_eq!(backlog_cards[0].id, backlog.id);
     }
 }
