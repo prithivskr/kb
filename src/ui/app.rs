@@ -1,4 +1,4 @@
-use chrono::{Datelike, Duration, Local, NaiveDate, Weekday};
+use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Utc, Weekday};
 
 use crate::domain::{Card, CardId, Column};
 
@@ -75,6 +75,20 @@ pub struct UiCard {
 }
 
 #[derive(Debug, Clone)]
+pub struct ArchivedUiCard {
+    pub title: String,
+    pub tags: Vec<String>,
+    pub due_date: Option<NaiveDate>,
+    pub done_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ArchivedPopupState {
+    pub cards: Vec<ArchivedUiCard>,
+    pub scroll: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct AppState {
     pub all_cards: Vec<UiCard>,
     pub cards: Vec<UiCard>,
@@ -85,6 +99,7 @@ pub struct AppState {
     pub insert_prompt: Option<InsertPromptState>,
     pub search_prompt: Option<SearchPromptState>,
     pub search_query: Option<String>,
+    pub archived_popup: Option<ArchivedPopupState>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,6 +124,7 @@ pub enum UiAction {
     Quit,
     ClearSearch,
     ArchiveDone,
+    OpenArchivedPopup,
     ColumnPrev,
     ColumnNext,
     CursorUp,
@@ -120,7 +136,6 @@ pub enum UiAction {
     MoveRight,
     ReorderUp,
     ReorderDown,
-    Reload,
     DeletePress,
     JumpBacklog,
     JumpThisWeek,
@@ -146,6 +161,7 @@ impl AppState {
             insert_prompt: None,
             search_prompt: None,
             search_query: None,
+            archived_popup: None,
         }
     }
 
@@ -227,12 +243,12 @@ impl AppState {
             | UiAction::Search
             | UiAction::ClearSearch
             | UiAction::ArchiveDone
+            | UiAction::OpenArchivedPopup
             | UiAction::InsertBelow
             | UiAction::MoveLeft
             | UiAction::MoveRight
             | UiAction::ReorderUp
-            | UiAction::ReorderDown
-            | UiAction::Reload => false,
+            | UiAction::ReorderDown => false,
             UiAction::DeletePress => false,
             UiAction::JumpBacklog
             | UiAction::JumpThisWeek
@@ -399,6 +415,38 @@ impl AppState {
         self.search_query.as_deref()
     }
 
+    pub fn open_archived_popup(&mut self, cards: Vec<Card>) {
+        self.archived_popup = Some(ArchivedPopupState {
+            cards: map_archived_cards(cards),
+            scroll: 0,
+        });
+    }
+
+    pub fn close_archived_popup(&mut self) {
+        self.archived_popup = None;
+    }
+
+    pub fn has_archived_popup(&self) -> bool {
+        self.archived_popup.is_some()
+    }
+
+    pub fn archived_popup(&self) -> Option<&ArchivedPopupState> {
+        self.archived_popup.as_ref()
+    }
+
+    pub fn scroll_archived_popup_up(&mut self) {
+        if let Some(popup) = &mut self.archived_popup {
+            popup.scroll = popup.scroll.saturating_sub(1);
+        }
+    }
+
+    pub fn scroll_archived_popup_down(&mut self) {
+        if let Some(popup) = &mut self.archived_popup {
+            let max_scroll = popup.cards.len().saturating_sub(1);
+            popup.scroll = (popup.scroll + 1).min(max_scroll);
+        }
+    }
+
     pub fn jump_to_column(&mut self, column: UiColumn) {
         self.switch_active_column(column);
     }
@@ -458,6 +506,18 @@ fn map_domain_cards(cards: Vec<Card>) -> Vec<UiCard> {
             tags: card.tags,
             due_date: card.due_date,
             blocked: card.blocked,
+        })
+        .collect()
+}
+
+fn map_archived_cards(cards: Vec<Card>) -> Vec<ArchivedUiCard> {
+    cards
+        .into_iter()
+        .map(|card| ArchivedUiCard {
+            title: card.title,
+            tags: card.tags,
+            due_date: card.due_date,
+            done_at: card.done_at,
         })
         .collect()
 }

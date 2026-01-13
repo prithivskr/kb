@@ -63,6 +63,10 @@ fn run_event_loop(
                 continue;
             };
 
+            if app.has_archived_popup() {
+                handle_archived_popup_key(key, app);
+                continue;
+            }
             if app.has_insert_prompt() {
                 handle_insert_prompt_key(key, app, repo)?;
                 continue;
@@ -106,13 +110,20 @@ fn handle_action(
         app::UiAction::ArchiveDone => {
             app.disarm_delete();
             let archived = repo.archive_all_done()?;
-            reload_board_state(repo, app)?;
+            refresh_board_state(repo, app)?;
             if archived == 0 {
                 app.set_status_message("no done cards to archive");
             } else {
                 let noun = if archived == 1 { "card" } else { "cards" };
                 app.set_status_message(format!("archived {archived} done {noun}"));
             }
+            Ok(false)
+        }
+        app::UiAction::OpenArchivedPopup => {
+            app.disarm_delete();
+            app.clear_status_message();
+            let archived_cards = repo.list_archived_cards()?;
+            app.open_archived_popup(archived_cards);
             Ok(false)
         }
         app::UiAction::InsertBelow => {
@@ -143,12 +154,6 @@ fn handle_action(
             app.disarm_delete();
             app.clear_status_message();
             handle_reorder(repo, app, ReorderDirection::Down)?;
-            Ok(false)
-        }
-        app::UiAction::Reload => {
-            app.disarm_delete();
-            app.clear_status_message();
-            reload_board_state(repo, app)?;
             Ok(false)
         }
         app::UiAction::Search => {
@@ -250,7 +255,7 @@ fn map_key_to_action(
         KeyCode::Char('3') => app::UiAction::JumpToday,
         KeyCode::Char('4') => app::UiAction::JumpDone,
         KeyCode::Char('G') => app::UiAction::JumpBottom,
-        KeyCode::Char('R') => app::UiAction::Reload,
+        KeyCode::Char('R') => app::UiAction::OpenArchivedPopup,
         KeyCode::Char('d') => app::UiAction::DeletePress,
         KeyCode::Char('h') | KeyCode::BackTab => app::UiAction::ColumnPrev,
         KeyCode::Char('l') | KeyCode::Tab => app::UiAction::ColumnNext,
@@ -268,7 +273,7 @@ fn load_board_state(repo: &SqliteRepository) -> Result<app::AppState> {
     Ok(app::AppState::from_domain_cards(cards))
 }
 
-fn reload_board_state(repo: &SqliteRepository, app: &mut app::AppState) -> Result<()> {
+fn refresh_board_state(repo: &SqliteRepository, app: &mut app::AppState) -> Result<()> {
     let mut cards = Vec::new();
     for column in app::UiColumn::ALL {
         cards.extend(repo.list_cards_in_column(column.to_domain())?);
@@ -294,7 +299,7 @@ fn handle_insert_with_title(
     if !parsed.tags.is_empty() {
         repo.set_tags(card.id, parsed.tags)?;
     }
-    reload_board_state(repo, app)?;
+    refresh_board_state(repo, app)?;
     Ok(())
 }
 
@@ -319,7 +324,7 @@ fn handle_insert_below_with_title(
         repo.set_tags(card.id, parsed.tags)?;
     }
     app.set_selected_index(column, target);
-    reload_board_state(repo, app)?;
+    refresh_board_state(repo, app)?;
     Ok(())
 }
 
@@ -357,7 +362,7 @@ fn handle_move(
         repo.move_card(card_id, target.to_domain(), target_position)?;
     }
 
-    reload_board_state(repo, app)?;
+    refresh_board_state(repo, app)?;
     app.active_column = target;
     let moved_index = app
         .cards_in_column(target)
@@ -409,7 +414,7 @@ fn handle_reorder(
         i64::try_from(target).expect("selection index should fit i64"),
     )?;
     app.set_selected_index(column, target);
-    reload_board_state(repo, app)?;
+    refresh_board_state(repo, app)?;
     Ok(())
 }
 
@@ -427,7 +432,7 @@ fn handle_delete_press(repo: &mut SqliteRepository, app: &mut app::AppState) -> 
     };
     repo.delete_card(card_id)?;
     app.clear_status_message();
-    reload_board_state(repo, app)?;
+    refresh_board_state(repo, app)?;
     Ok(())
 }
 
@@ -496,6 +501,15 @@ fn handle_search_prompt_key(key: KeyEvent, app: &mut app::AppState) {
                 app.push_search_char(ch);
             }
         }
+        _ => {}
+    }
+}
+
+fn handle_archived_popup_key(key: KeyEvent, app: &mut app::AppState) {
+    match key.code {
+        KeyCode::Esc | KeyCode::Char('R') => app.close_archived_popup(),
+        KeyCode::Char('j') | KeyCode::Down => app.scroll_archived_popup_down(),
+        KeyCode::Char('k') | KeyCode::Up => app.scroll_archived_popup_up(),
         _ => {}
     }
 }
@@ -571,5 +585,19 @@ mod tests {
         assert_eq!(first, UiAction::None);
         assert_eq!(second, UiAction::None);
         assert_eq!(third, UiAction::None);
+    }
+
+    #[test]
+    fn r_maps_to_open_archived_popup() {
+        let mut pending_g = false;
+        let mut pending_shift_a = false;
+
+        let action = map_key_to_action(
+            KeyEvent::new(KeyCode::Char('R'), KeyModifiers::NONE),
+            &mut pending_g,
+            &mut pending_shift_a,
+        );
+
+        assert_eq!(action, UiAction::OpenArchivedPopup);
     }
 }

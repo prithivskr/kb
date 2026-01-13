@@ -3,9 +3,9 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, Padding, Paragraph};
+use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
-use crate::ui::app::{AppState, UiColumn};
+use crate::ui::app::{AppState, ArchivedPopupState, UiColumn};
 use crate::ui::theme;
 
 pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
@@ -47,7 +47,7 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
         prompt
     } else {
         format!(
-            "[/] search  [?] help  [a] add-end [i] add-below [dd] delete [AA] archive-done [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end [R] reload  |  Today: {}/3  |  week: {}{}{}{}",
+            "[/] search  [?] help  [a] add-end [i] add-below [dd] delete [AA] archive-done [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end [R] archived  |  Today: {}/3  |  week: {}{}{}{}",
             app.today_wip_count(),
             app.week_range_label(),
             if let Some(query) = app.active_search_label() {
@@ -70,6 +70,10 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
     let status = truncate_for_width(&status, usize::from(layout[1].width));
     let status_bar = Paragraph::new(status).style(Style::default().fg(theme::FG).bg(theme::BG));
     frame.render_widget(status_bar, layout[1]);
+
+    if let Some(popup) = app.archived_popup() {
+        render_archived_popup(frame, popup);
+    }
 }
 
 fn due_date_style(due_date: Option<NaiveDate>, today: NaiveDate) -> Style {
@@ -187,4 +191,76 @@ fn truncate_for_width(input: &str, width: usize) -> String {
     let mut out = input.chars().take(keep).collect::<String>();
     out.push('…');
     out
+}
+
+fn render_archived_popup(frame: &mut Frame<'_>, popup: &ArchivedPopupState) {
+    let area = centered_rect(frame.area(), 85, 80);
+    frame.render_widget(Clear, area);
+
+    let card_count = popup.cards.len();
+    let title = format!("Archived Tasks ({card_count})");
+    let header = "Esc/R close  j/k scroll";
+    let content = if popup.cards.is_empty() {
+        format!("{header}\n\nNo archived tasks.")
+    } else {
+        let lines = popup
+            .cards
+            .iter()
+            .enumerate()
+            .map(|(index, card)| {
+                let done = card
+                    .done_at
+                    .map(|dt| dt.format("%Y-%m-%d").to_string())
+                    .unwrap_or_else(|| "unknown".to_string());
+                let due = card
+                    .due_date
+                    .map(|date| format!("due {}", date.format("%Y-%m-%d")))
+                    .unwrap_or_else(|| "no due".to_string());
+                let tags = if card.tags.is_empty() {
+                    String::new()
+                } else {
+                    format!("  #{}", card.tags.join(" #"))
+                };
+                format!(
+                    "{}. {}  [done {} | {}]{}",
+                    index + 1,
+                    card.title,
+                    done,
+                    due,
+                    tags
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!("{header}\n\n{lines}")
+    };
+    let popup_widget = Paragraph::new(content)
+        .scroll((u16::try_from(popup.scroll).unwrap_or(u16::MAX), 0))
+        .style(Style::default().fg(theme::FG).bg(theme::BG))
+        .block(
+            Block::default()
+                .title(Line::from(title).style(theme::title_style()))
+                .borders(Borders::ALL)
+                .style(Style::default().fg(theme::FG).bg(theme::BG))
+                .border_style(Style::default().fg(theme::ACTIVE_BORDER))
+                .padding(Padding::horizontal(1)),
+        );
+
+    frame.render_widget(popup_widget, area);
+}
+
+fn centered_rect(area: Rect, width_percent: u16, height_percent: u16) -> Rect {
+    let vertical = Layout::vertical([
+        Constraint::Percentage((100 - height_percent) / 2),
+        Constraint::Percentage(height_percent),
+        Constraint::Percentage((100 - height_percent) / 2),
+    ])
+    .split(area);
+    let horizontal = Layout::horizontal([
+        Constraint::Percentage((100 - width_percent) / 2),
+        Constraint::Percentage(width_percent),
+        Constraint::Percentage((100 - width_percent) / 2),
+    ])
+    .split(vertical[1]);
+    horizontal[1]
 }
