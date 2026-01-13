@@ -5,7 +5,9 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
-use crate::ui::app::{AppState, ArchivedPopupState, UiColumn};
+use crate::ui::app::{
+    AppState, ArchivedPopupState, THIS_WEEK_SOFT_LIMIT, TODAY_HARD_LIMIT, UiColumn,
+};
 use crate::ui::theme;
 
 pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
@@ -27,7 +29,7 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
             Style::default().fg(theme::BORDER)
         };
         let block = Block::default()
-            .title(Line::from(column.title()).style(theme::title_style()))
+            .title(column_title_line(app, *column))
             .borders(Borders::ALL)
             .style(Style::default().fg(theme::FG).bg(theme::BG))
             .border_style(border_style);
@@ -47,7 +49,7 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
         prompt
     } else {
         format!(
-            "[/] search  [?] help  [a] add-end [i] add-below [dd] delete [R] archive-done [r] archived [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end  |  Today: {}/3  |  week: {}{}{}{}",
+            "[/] search  [?] help  [a] add-end [i] add-below [dd] delete [R] archive-done [r] archived [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end  |  Today: {}/4  |  week: {}{}{}{}",
             app.today_wip_count(),
             app.week_range_label(),
             if let Some(query) = app.active_search_label() {
@@ -73,6 +75,30 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
 
     if let Some(popup) = app.archived_popup() {
         render_archived_popup(frame, popup);
+    }
+}
+
+fn column_title_line(app: &AppState, column: UiColumn) -> Line<'static> {
+    match column {
+        UiColumn::Today => {
+            let count = app.today_wip_count();
+            let style = if count >= TODAY_HARD_LIMIT {
+                theme::title_style().fg(theme::DUE_OVERDUE)
+            } else {
+                theme::title_style()
+            };
+            Line::from(format!("Today ({count}/{TODAY_HARD_LIMIT})")).style(style)
+        }
+        UiColumn::ThisWeek => {
+            let count = app.this_week_wip_count();
+            let style = if count >= THIS_WEEK_SOFT_LIMIT {
+                theme::title_style().fg(theme::DUE_TODAY)
+            } else {
+                theme::title_style()
+            };
+            Line::from(format!("This Week ({count}/{THIS_WEEK_SOFT_LIMIT})")).style(style)
+        }
+        _ => Line::from(column.title()).style(theme::title_style()),
     }
 }
 
