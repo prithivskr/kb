@@ -167,11 +167,7 @@ fn render_cards_in_column(
         } else {
             format!("#{}", card.tags.join(" #"))
         };
-        let title = if card.blocked {
-            format!("! {}", card.title)
-        } else {
-            card.title.clone()
-        };
+        let title = card.title.clone();
 
         let card_area = Rect::new(inner.x, y, inner.width, card_height);
         let is_selected = is_active_column && index == selected_index;

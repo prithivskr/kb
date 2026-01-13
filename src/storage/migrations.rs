@@ -22,8 +22,7 @@ const MIGRATION_001_CARDS: Migration = Migration {
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             done_at    TEXT,
-            archived   INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0, 1)),
-            blocked    INTEGER NOT NULL DEFAULT 0 CHECK(blocked IN (0, 1))
+            archived   INTEGER NOT NULL DEFAULT 0 CHECK(archived IN (0, 1))
         );
 
         CREATE INDEX idx_cards_column_position ON cards(column, position);

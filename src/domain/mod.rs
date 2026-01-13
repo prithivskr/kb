@@ -113,7 +113,6 @@ pub struct Card {
     pub updated_at: DateTime<Utc>,
     pub done_at: Option<DateTime<Utc>>,
     pub archived: bool,
-    pub blocked: bool,
 }
 
 impl Card {
@@ -137,7 +136,6 @@ impl Card {
             updated_at: now,
             done_at: None,
             archived: false,
-            blocked: false,
         })
     }
 

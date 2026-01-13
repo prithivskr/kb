@@ -71,7 +71,6 @@ pub struct UiCard {
     pub column: UiColumn,
     pub tags: Vec<String>,
     pub due_date: Option<NaiveDate>,
-    pub blocked: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -509,7 +508,6 @@ fn map_domain_cards(cards: Vec<Card>) -> Vec<UiCard> {
             column: UiColumn::from_domain(card.column),
             tags: card.tags,
             due_date: card.due_date,
-            blocked: card.blocked,
         })
         .collect()
 }
@@ -612,7 +610,6 @@ mod tests {
             updated_at: Utc::now(),
             done_at: None,
             archived: false,
-            blocked: false,
         }
     }
 

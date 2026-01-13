@@ -48,8 +48,8 @@ impl SqliteRepository {
 
         self.conn.execute(
             "INSERT INTO cards(
-                id, title, column, position, due_date, created_at, updated_at, done_at, archived, blocked
-            ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                id, title, column, position, due_date, created_at, updated_at, done_at, archived
+            ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 card.id.to_string(),
                 card.title,
@@ -60,7 +60,6 @@ impl SqliteRepository {
                 card.updated_at.to_rfc3339(),
                 card.done_at.map(|dt| dt.to_rfc3339()),
                 bool_to_int(card.archived),
-                bool_to_int(card.blocked),
             ],
         )
         .context("failed to insert card")?;
@@ -98,8 +97,8 @@ impl SqliteRepository {
 
         tx.execute(
             "INSERT INTO cards(
-                id, title, column, position, due_date, created_at, updated_at, done_at, archived, blocked
-            ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                id, title, column, position, due_date, created_at, updated_at, done_at, archived
+            ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 card.id.to_string(),
                 card.title,
@@ -110,7 +109,6 @@ impl SqliteRepository {
                 card.updated_at.to_rfc3339(),
                 card.done_at.map(|dt| dt.to_rfc3339()),
                 bool_to_int(card.archived),
-                bool_to_int(card.blocked),
             ],
         )
         .context("failed inserting card in insert-at")?;
@@ -126,7 +124,7 @@ impl SqliteRepository {
             .query_row(
                 "SELECT
                     id, title, column, position, due_date,
-                    created_at, updated_at, done_at, archived, blocked
+                    created_at, updated_at, done_at, archived
                  FROM cards
                  WHERE id = ?1",
                 [id.to_string()],
@@ -144,7 +142,7 @@ impl SqliteRepository {
             .prepare(
                 "SELECT
                     id, title, column, position, due_date,
-                    created_at, updated_at, done_at, archived, blocked
+                    created_at, updated_at, done_at, archived
                  FROM cards
                  WHERE column = ?1 AND archived = 0
                  ORDER BY position ASC, created_at ASC",
@@ -169,7 +167,7 @@ impl SqliteRepository {
             .prepare(
                 "SELECT
                     id, title, column, position, due_date,
-                    created_at, updated_at, done_at, archived, blocked
+                    created_at, updated_at, done_at, archived
                  FROM cards
                  WHERE archived = 1
                  ORDER BY COALESCE(done_at, updated_at) DESC, created_at DESC",
@@ -210,18 +208,6 @@ impl SqliteRepository {
                 params![due_date, now, id.to_string()],
             )
             .context("failed to update due date")?;
-        ensure_row_updated(updated, id)
-    }
-
-    pub fn set_blocked(&mut self, id: CardId, blocked: bool) -> Result<()> {
-        let now = Utc::now().to_rfc3339();
-        let updated = self
-            .conn
-            .execute(
-                "UPDATE cards SET blocked = ?1, updated_at = ?2 WHERE id = ?3",
-                params![bool_to_int(blocked), now, id.to_string()],
-            )
-            .context("failed to update blocked flag")?;
         ensure_row_updated(updated, id)
     }
 
@@ -510,7 +496,6 @@ fn row_to_card(row: &Row<'_>) -> rusqlite::Result<Card> {
     let updated_at = parse_datetime(row.get(6)?)?;
     let done_at = parse_optional_datetime(row.get(7)?)?;
     let archived = int_to_bool(row.get(8)?);
-    let blocked = int_to_bool(row.get(9)?);
 
     Ok(Card {
         id,
@@ -523,7 +508,6 @@ fn row_to_card(row: &Row<'_>) -> rusqlite::Result<Card> {
         updated_at,
         done_at,
         archived,
-        blocked,
     })
 }
 
@@ -727,8 +711,6 @@ mod tests {
             Some(NaiveDate::from_ymd_opt(2026, 3, 10).expect("valid date")),
         )
         .expect("due date update should succeed");
-        repo.set_blocked(second.id, true)
-            .expect("blocked update should succeed");
         repo.move_card(second.id, Column::Backlog, 0)
             .expect("reorder should succeed");
 
@@ -746,7 +728,6 @@ mod tests {
             .expect("card should exist");
         assert_eq!(done_card.column, Column::Done);
         assert!(done_card.done_at.is_some());
-        assert!(done_card.blocked);
         assert_eq!(done_card.title, "Updated title");
     }
 
