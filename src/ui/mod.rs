@@ -96,6 +96,13 @@ fn handle_action(
     match action {
         app::UiAction::Insert => {
             app.disarm_delete();
+            if app.active_column == app::UiColumn::Today && today_is_at_capacity(repo)? {
+                app.set_status_message(format!(
+                    "today column is full ({} tasks max)",
+                    app::TODAY_HARD_LIMIT
+                ));
+                return Ok(false);
+            }
             app.clear_status_message();
             app.start_insert_prompt(app::InsertPlacement::End);
             Ok(false)
@@ -127,6 +134,13 @@ fn handle_action(
         }
         app::UiAction::InsertBelow => {
             app.disarm_delete();
+            if app.active_column == app::UiColumn::Today && today_is_at_capacity(repo)? {
+                app.set_status_message(format!(
+                    "today column is full ({} tasks max)",
+                    app::TODAY_HARD_LIMIT
+                ));
+                return Ok(false);
+            }
             app.clear_status_message();
             app.start_insert_prompt(app::InsertPlacement::BelowSelection);
             Ok(false)
@@ -498,12 +512,20 @@ fn handle_archived_popup_key(key: KeyEvent, app: &mut app::AppState) {
     }
 }
 
+fn today_is_at_capacity(repo: &SqliteRepository) -> Result<bool> {
+    let today_cards = repo.list_cards_in_column(app::UiColumn::Today.to_domain())?;
+    Ok(today_cards.len() >= app::TODAY_HARD_LIMIT)
+}
+
 #[cfg(test)]
 mod tests {
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use rusqlite::Connection;
 
     use super::app::UiAction;
-    use super::map_key_to_action;
+    use super::{handle_action, load_board_state, map_key_to_action};
+    use crate::domain::Column;
+    use crate::repo::{NewCard, SqliteRepository};
 
     #[test]
     fn double_g_still_maps_to_jump_top() {
@@ -561,5 +583,39 @@ mod tests {
         );
 
         assert_eq!(action, UiAction::OpenArchivedPopup);
+    }
+
+    #[test]
+    fn insert_shortcuts_do_not_open_prompt_when_today_is_full() {
+        let conn = Connection::open_in_memory().expect("in-memory db should open");
+        let mut repo = SqliteRepository::new(conn).expect("repo should initialize");
+        for index in 0..4 {
+            repo.create_card(NewCard {
+                title: format!("Today {index}"),
+                column: Column::Today,
+                position: index,
+                due_date: None,
+            })
+            .expect("seed today card should succeed");
+        }
+        let mut app = load_board_state(&repo).expect("load should succeed");
+
+        let should_quit = handle_action(UiAction::Insert, &mut app, &mut repo)
+            .expect("insert action should succeed");
+        assert!(!should_quit);
+        assert!(!app.has_insert_prompt());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("today column is full (4 tasks max)")
+        );
+
+        let should_quit = handle_action(UiAction::InsertBelow, &mut app, &mut repo)
+            .expect("insert-below action should succeed");
+        assert!(!should_quit);
+        assert!(!app.has_insert_prompt());
+        assert_eq!(
+            app.status_message.as_deref(),
+            Some("today column is full (4 tasks max)")
+        );
     }
 }
