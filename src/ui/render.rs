@@ -47,7 +47,7 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
         prompt
     } else {
         format!(
-            "[/] search  [?] help  [a] add-end [i] add-below [dd] delete [AA] archive-done [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end [R] archived  |  Today: {}/3  |  week: {}{}{}{}",
+            "[/] search  [?] help  [a] add-end [i] add-below [dd] delete [R] archive-done [r] archived [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end  |  Today: {}/3  |  week: {}{}{}{}",
             app.today_wip_count(),
             app.week_range_label(),
             if let Some(query) = app.active_search_label() {
@@ -199,7 +199,7 @@ fn render_archived_popup(frame: &mut Frame<'_>, popup: &ArchivedPopupState) {
 
     let card_count = popup.cards.len();
     let title = format!("Archived Tasks ({card_count})");
-    let header = "Esc/R close  j/k scroll";
+    let header = "Esc/r close  j/k scroll";
     let content = if popup.cards.is_empty() {
         format!("{header}\n\nNo archived tasks.")
     } else {

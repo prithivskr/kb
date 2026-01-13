@@ -52,7 +52,6 @@ fn run_event_loop(
     repo: &mut SqliteRepository,
 ) -> Result<()> {
     let mut pending_g = false;
-    let mut pending_shift_a = false;
     loop {
         terminal.draw(|frame| {
             render::render_board(frame, app);
@@ -76,7 +75,7 @@ fn run_event_loop(
                 continue;
             }
 
-            let action = map_key_to_action(key, &mut pending_g, &mut pending_shift_a);
+            let action = map_key_to_action(key, &mut pending_g);
             if action == app::UiAction::None {
                 continue;
             }
@@ -213,33 +212,17 @@ fn handle_action(
     }
 }
 
-fn map_key_to_action(
-    key: KeyEvent,
-    pending_g: &mut bool,
-    pending_shift_a: &mut bool,
-) -> app::UiAction {
+fn map_key_to_action(key: KeyEvent, pending_g: &mut bool) -> app::UiAction {
     if matches!(key.code, KeyCode::Char('g')) {
         if *pending_g {
             *pending_g = false;
             return app::UiAction::JumpTop;
         }
         *pending_g = true;
-        *pending_shift_a = false;
-        return app::UiAction::None;
-    }
-
-    if matches!(key.code, KeyCode::Char('A')) {
-        if *pending_shift_a {
-            *pending_shift_a = false;
-            return app::UiAction::ArchiveDone;
-        }
-        *pending_shift_a = true;
-        *pending_g = false;
         return app::UiAction::None;
     }
 
     *pending_g = false;
-    *pending_shift_a = false;
     match key.code {
         KeyCode::Char('q') => app::UiAction::Quit,
         KeyCode::Esc => app::UiAction::ClearSearch,
@@ -255,7 +238,8 @@ fn map_key_to_action(
         KeyCode::Char('3') => app::UiAction::JumpToday,
         KeyCode::Char('4') => app::UiAction::JumpDone,
         KeyCode::Char('G') => app::UiAction::JumpBottom,
-        KeyCode::Char('R') => app::UiAction::OpenArchivedPopup,
+        KeyCode::Char('R') => app::UiAction::ArchiveDone,
+        KeyCode::Char('r') => app::UiAction::OpenArchivedPopup,
         KeyCode::Char('d') => app::UiAction::DeletePress,
         KeyCode::Char('h') | KeyCode::BackTab => app::UiAction::ColumnPrev,
         KeyCode::Char('l') | KeyCode::Tab => app::UiAction::ColumnNext,
@@ -507,7 +491,7 @@ fn handle_search_prompt_key(key: KeyEvent, app: &mut app::AppState) {
 
 fn handle_archived_popup_key(key: KeyEvent, app: &mut app::AppState) {
     match key.code {
-        KeyCode::Esc | KeyCode::Char('R') => app.close_archived_popup(),
+        KeyCode::Esc | KeyCode::Char('r') => app.close_archived_popup(),
         KeyCode::Char('j') | KeyCode::Down => app.scroll_archived_popup_down(),
         KeyCode::Char('k') | KeyCode::Up => app.scroll_archived_popup_up(),
         _ => {}
@@ -522,39 +506,16 @@ mod tests {
     use super::map_key_to_action;
 
     #[test]
-    fn double_shift_a_maps_to_archive_done() {
-        let mut pending_g = false;
-        let mut pending_shift_a = false;
-
-        let first = map_key_to_action(
-            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE),
-            &mut pending_g,
-            &mut pending_shift_a,
-        );
-        let second = map_key_to_action(
-            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE),
-            &mut pending_g,
-            &mut pending_shift_a,
-        );
-
-        assert_eq!(first, UiAction::None);
-        assert_eq!(second, UiAction::ArchiveDone);
-    }
-
-    #[test]
     fn double_g_still_maps_to_jump_top() {
         let mut pending_g = false;
-        let mut pending_shift_a = false;
 
         let first = map_key_to_action(
             KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
             &mut pending_g,
-            &mut pending_shift_a,
         );
         let second = map_key_to_action(
             KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
             &mut pending_g,
-            &mut pending_shift_a,
         );
 
         assert_eq!(first, UiAction::None);
@@ -562,40 +523,41 @@ mod tests {
     }
 
     #[test]
-    fn sequence_switch_clears_previous_pending_state() {
+    fn g_then_r_does_not_trigger_jump_top() {
         let mut pending_g = false;
-        let mut pending_shift_a = false;
 
         let first = map_key_to_action(
             KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
             &mut pending_g,
-            &mut pending_shift_a,
         );
         let second = map_key_to_action(
-            KeyEvent::new(KeyCode::Char('A'), KeyModifiers::NONE),
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
             &mut pending_g,
-            &mut pending_shift_a,
-        );
-        let third = map_key_to_action(
-            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::NONE),
-            &mut pending_g,
-            &mut pending_shift_a,
         );
 
         assert_eq!(first, UiAction::None);
-        assert_eq!(second, UiAction::None);
-        assert_eq!(third, UiAction::None);
+        assert_eq!(second, UiAction::OpenArchivedPopup);
     }
 
     #[test]
-    fn r_maps_to_open_archived_popup() {
+    fn uppercase_r_maps_to_archive_done() {
         let mut pending_g = false;
-        let mut pending_shift_a = false;
 
         let action = map_key_to_action(
             KeyEvent::new(KeyCode::Char('R'), KeyModifiers::NONE),
             &mut pending_g,
-            &mut pending_shift_a,
+        );
+
+        assert_eq!(action, UiAction::ArchiveDone);
+    }
+
+    #[test]
+    fn lowercase_r_maps_to_open_archived_popup() {
+        let mut pending_g = false;
+
+        let action = map_key_to_action(
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+            &mut pending_g,
         );
 
         assert_eq!(action, UiAction::OpenArchivedPopup);
