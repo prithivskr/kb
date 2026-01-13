@@ -2,6 +2,9 @@ use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Utc, Weekday};
 
 use crate::domain::{Card, CardId, Column};
 
+pub const TODAY_HARD_LIMIT: usize = 4;
+pub const THIS_WEEK_SOFT_LIMIT: usize = 10;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiColumn {
     Backlog,
@@ -174,6 +177,10 @@ impl AppState {
 
     pub fn today_wip_count(&self) -> usize {
         self.cards_in_column(UiColumn::Today).len()
+    }
+
+    pub fn this_week_wip_count(&self) -> usize {
+        self.cards_in_column(UiColumn::ThisWeek).len()
     }
 
     pub fn selected_index(&self, column: UiColumn) -> usize {
@@ -659,5 +666,17 @@ mod tests {
 
         assert_eq!(app.column_len(UiColumn::Today), 1);
         assert_eq!(app.cards_in_column(UiColumn::Today)[0].title, "Pay rent");
+    }
+
+    #[test]
+    fn this_week_wip_count_is_scoped_to_this_week_column() {
+        let mut first = card("Plan sprint", vec!["planning"], None);
+        first.column = Column::ThisWeek;
+        let second = card("Review PR", vec!["backend"], None);
+        let mut third = card("Retro notes", vec!["team"], None);
+        third.column = Column::ThisWeek;
+
+        let app = AppState::from_domain_cards(vec![first, second, third]);
+        assert_eq!(app.this_week_wip_count(), 2);
     }
 }
