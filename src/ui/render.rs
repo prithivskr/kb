@@ -9,15 +9,11 @@ use crate::config;
 use crate::ui::app::{AppState, ArchivedPopupState, UiColumn};
 use crate::ui::theme;
 
+const SKINNY_TERMINAL_WIDTH: u16 = 110;
+
 pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
     let layout = Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).split(frame.area());
-    let board_chunks = Layout::horizontal([
-        Constraint::Percentage(25),
-        Constraint::Percentage(25),
-        Constraint::Percentage(25),
-        Constraint::Percentage(25),
-    ])
-    .split(layout[0]);
+    let board_chunks = board_chunks(layout[0]);
 
     for (index, column) in UiColumn::ALL.iter().enumerate() {
         let cards = app.cards_in_column(*column);
@@ -73,6 +69,28 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
 
     if let Some(popup) = app.archived_popup() {
         render_archived_popup(frame, popup);
+    }
+}
+
+fn board_chunks(area: Rect) -> [Rect; 4] {
+    if area.width < SKINNY_TERMINAL_WIDTH {
+        let rows =
+            Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
+        let top =
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[0]);
+        let bottom =
+            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[1]);
+        // Top row: Backlog, This Week. Bottom row: Today, Done.
+        [top[0], top[1], bottom[0], bottom[1]]
+    } else {
+        let cols = Layout::horizontal([
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+            Constraint::Percentage(25),
+        ])
+        .split(area);
+        [cols[0], cols[1], cols[2], cols[3]]
     }
 }
 
