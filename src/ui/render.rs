@@ -5,9 +5,8 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Clear, Padding, Paragraph};
 
-use crate::ui::app::{
-    AppState, ArchivedPopupState, THIS_WEEK_SOFT_LIMIT, TODAY_HARD_LIMIT, UiColumn,
-};
+use crate::config;
+use crate::ui::app::{AppState, ArchivedPopupState, UiColumn};
 use crate::ui::theme;
 
 pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
@@ -24,14 +23,14 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
         let cards = app.cards_in_column(*column);
 
         let border_style = if *column == app.active_column {
-            Style::default().fg(theme::ACTIVE_BORDER)
+            Style::default().fg(theme::active_border())
         } else {
-            Style::default().fg(theme::BORDER)
+            Style::default().fg(theme::border())
         };
         let block = Block::default()
             .title(column_title_line(app, *column))
             .borders(Borders::ALL)
-            .style(Style::default().fg(theme::FG).bg(theme::BG))
+            .style(Style::default().fg(theme::fg()).bg(theme::bg()))
             .border_style(border_style);
         frame.render_widget(block, board_chunks[index]);
         render_cards_in_column(
@@ -49,8 +48,7 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
         prompt
     } else {
         format!(
-            "[/] search  [?] help  [a] add-end [i] add-below [dd] delete [R] archive-done [r] archived [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end  |  Today: {}/4  |  week: {}{}{}{}",
-            app.today_wip_count(),
+            "[/] search  [a] add-end [i] add-below [dd] delete [R] archive-done [r] archived [H/L] move [J/K] reorder [1-4] jump [gg/G] home/end  |  week: {}{}{}{}",
             app.week_range_label(),
             if let Some(query) = app.active_search_label() {
                 format!("  |  search: {query}")
@@ -70,7 +68,7 @@ pub fn render_board(frame: &mut Frame<'_>, app: &AppState) {
         )
     };
     let status = truncate_for_width(&status, usize::from(layout[1].width));
-    let status_bar = Paragraph::new(status).style(Style::default().fg(theme::FG).bg(theme::BG));
+    let status_bar = Paragraph::new(status).style(Style::default().fg(theme::fg()).bg(theme::bg()));
     frame.render_widget(status_bar, layout[1]);
 
     if let Some(popup) = app.archived_popup() {
@@ -82,32 +80,34 @@ fn column_title_line(app: &AppState, column: UiColumn) -> Line<'static> {
     match column {
         UiColumn::Today => {
             let count = app.today_wip_count();
-            let style = if count >= TODAY_HARD_LIMIT {
-                theme::title_style().fg(theme::DUE_OVERDUE)
+            let today_hard_limit = config::get().limits.today_hard_limit;
+            let style = if count >= today_hard_limit {
+                theme::title_style().fg(theme::due_overdue())
             } else {
                 theme::title_style()
             };
-            Line::from(format!("Today ({count}/{TODAY_HARD_LIMIT})")).style(style)
+            Line::from(format!("Today ({count}/{today_hard_limit})")).style(style)
         }
         UiColumn::ThisWeek => {
             let count = app.this_week_wip_count();
-            let style = if count >= THIS_WEEK_SOFT_LIMIT {
-                theme::title_style().fg(theme::DUE_TODAY)
+            let this_week_soft_limit = config::get().limits.this_week_soft_limit;
+            let style = if count >= this_week_soft_limit {
+                theme::title_style().fg(theme::due_today())
             } else {
                 theme::title_style()
             };
-            Line::from(format!("This Week ({count}/{THIS_WEEK_SOFT_LIMIT})")).style(style)
+            Line::from(format!("This Week ({count}/{this_week_soft_limit})")).style(style)
         }
         _ => Line::from(column.title()).style(theme::title_style()),
     }
 }
 
 fn due_date_style(due_date: Option<NaiveDate>, today: NaiveDate) -> Style {
-    let base = Style::default().fg(theme::FG).bg(theme::BG);
+    let base = Style::default().fg(theme::fg()).bg(theme::bg());
     match due_date {
-        Some(due) if due < today => base.fg(theme::DUE_OVERDUE),
-        Some(due) if due == today => base.fg(theme::DUE_TODAY),
-        Some(due) if due <= today + Duration::days(7) => base.fg(theme::DUE_SOON),
+        Some(due) if due < today => base.fg(theme::due_overdue()),
+        Some(due) if due == today => base.fg(theme::due_today()),
+        Some(due) if due <= today + Duration::days(7) => base.fg(theme::due_soon()),
         _ => base,
     }
 }
@@ -142,7 +142,7 @@ fn render_cards_in_column(
     let mut y = inner.y;
     if cards.is_empty() {
         let empty = Paragraph::new("No cards")
-            .style(Style::default().fg(theme::BORDER).bg(theme::BG))
+            .style(Style::default().fg(theme::border()).bg(theme::bg()))
             .block(Block::default().padding(Padding::horizontal(1)));
         frame.render_widget(empty, inner);
         return;
@@ -182,9 +182,9 @@ fn render_cards_in_column(
             base_line_style
         };
         let card_border = if is_selected {
-            Style::default().fg(theme::ACTIVE_BORDER)
+            Style::default().fg(theme::active_border())
         } else {
-            Style::default().fg(theme::BORDER)
+            Style::default().fg(theme::border())
         };
         let card_widget = Paragraph::new(vec![
             Line::from(title).style(line_style),
@@ -196,7 +196,7 @@ fn render_cards_in_column(
                 .padding(Padding::horizontal(1))
                 .border_style(card_border),
         )
-        .style(Style::default().fg(theme::FG).bg(theme::BG));
+        .style(Style::default().fg(theme::fg()).bg(theme::bg()));
         frame.render_widget(card_widget, card_area);
         y = y.saturating_add(card_height);
     }
@@ -262,13 +262,13 @@ fn render_archived_popup(frame: &mut Frame<'_>, popup: &ArchivedPopupState) {
     };
     let popup_widget = Paragraph::new(content)
         .scroll((u16::try_from(popup.scroll).unwrap_or(u16::MAX), 0))
-        .style(Style::default().fg(theme::FG).bg(theme::BG))
+        .style(Style::default().fg(theme::fg()).bg(theme::bg()))
         .block(
             Block::default()
                 .title(Line::from(title).style(theme::title_style()))
                 .borders(Borders::ALL)
-                .style(Style::default().fg(theme::FG).bg(theme::BG))
-                .border_style(Style::default().fg(theme::ACTIVE_BORDER))
+                .style(Style::default().fg(theme::fg()).bg(theme::bg()))
+                .border_style(Style::default().fg(theme::active_border()))
                 .padding(Padding::horizontal(1)),
         );
 

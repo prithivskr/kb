@@ -3,20 +3,10 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use rusqlite::Connection;
 
-const APP_NAME: &str = "kanban";
-const DB_FILENAME: &str = "kanban-v2.db";
+use crate::config;
 
 pub fn default_db_path() -> Result<PathBuf> {
-    if let Some(base) = dirs::data_local_dir() {
-        return Ok(base.join(APP_NAME).join(DB_FILENAME));
-    }
-
-    let home = dirs::home_dir().context("could not resolve home directory")?;
-    Ok(home
-        .join(".local")
-        .join("share")
-        .join(APP_NAME)
-        .join(DB_FILENAME))
+    Ok(config::get().database_path.clone())
 }
 
 pub fn ensure_db_parent_exists(path: &Path) -> Result<()> {

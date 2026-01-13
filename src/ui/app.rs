@@ -2,9 +2,6 @@ use chrono::{DateTime, Datelike, Duration, Local, NaiveDate, Utc, Weekday};
 
 use crate::domain::{Card, CardId, Column};
 
-pub const TODAY_HARD_LIMIT: usize = 4;
-pub const THIS_WEEK_SOFT_LIMIT: usize = 10;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiColumn {
     Backlog,

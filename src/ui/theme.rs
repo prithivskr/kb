@@ -1,13 +1,35 @@
 use ratatui::style::{Color, Style};
 
-pub const BG: Color = Color::Reset;
-pub const FG: Color = Color::Gray;
-pub const BORDER: Color = Color::DarkGray;
-pub const ACTIVE_BORDER: Color = Color::Cyan;
-pub const DUE_OVERDUE: Color = Color::Red;
-pub const DUE_TODAY: Color = Color::Yellow;
-pub const DUE_SOON: Color = Color::Cyan;
+use crate::config;
+
+pub fn bg() -> Color {
+    config::get().colors.bg
+}
+
+pub fn fg() -> Color {
+    config::get().colors.fg
+}
+
+pub fn border() -> Color {
+    config::get().colors.border
+}
+
+pub fn active_border() -> Color {
+    config::get().colors.active_border
+}
+
+pub fn due_overdue() -> Color {
+    config::get().colors.due_overdue
+}
+
+pub fn due_today() -> Color {
+    config::get().colors.due_today
+}
+
+pub fn due_soon() -> Color {
+    config::get().colors.due_soon
+}
 
 pub fn title_style() -> Style {
-    Style::default().fg(Color::White)
+    Style::default().fg(config::get().colors.title)
 }

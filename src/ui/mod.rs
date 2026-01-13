@@ -11,6 +11,7 @@ use crossterm::terminal::{
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
+use crate::config;
 use crate::input_parser::parse_task_input;
 use crate::repo::{NewCard, SqliteRepository};
 use crate::storage::open_default_connection;
@@ -99,7 +100,7 @@ fn handle_action(
             if app.active_column == app::UiColumn::Today && today_is_at_capacity(repo)? {
                 app.set_status_message(format!(
                     "today column is full ({} tasks max)",
-                    app::TODAY_HARD_LIMIT
+                    config::get().limits.today_hard_limit
                 ));
                 return Ok(false);
             }
@@ -137,7 +138,7 @@ fn handle_action(
             if app.active_column == app::UiColumn::Today && today_is_at_capacity(repo)? {
                 app.set_status_message(format!(
                     "today column is full ({} tasks max)",
-                    app::TODAY_HARD_LIMIT
+                    config::get().limits.today_hard_limit
                 ));
                 return Ok(false);
             }
@@ -514,7 +515,7 @@ fn handle_archived_popup_key(key: KeyEvent, app: &mut app::AppState) {
 
 fn today_is_at_capacity(repo: &SqliteRepository) -> Result<bool> {
     let today_cards = repo.list_cards_in_column(app::UiColumn::Today.to_domain())?;
-    Ok(today_cards.len() >= app::TODAY_HARD_LIMIT)
+    Ok(today_cards.len() >= config::get().limits.today_hard_limit)
 }
 
 #[cfg(test)]
@@ -589,11 +590,12 @@ mod tests {
     fn insert_shortcuts_do_not_open_prompt_when_today_is_full() {
         let conn = Connection::open_in_memory().expect("in-memory db should open");
         let mut repo = SqliteRepository::new(conn).expect("repo should initialize");
-        for index in 0..4 {
+        let limit = crate::config::get().limits.today_hard_limit;
+        for index in 0..limit {
             repo.create_card(NewCard {
                 title: format!("Today {index}"),
                 column: Column::Today,
-                position: index,
+                position: i64::try_from(index).expect("limit index should fit i64"),
                 due_date: None,
             })
             .expect("seed today card should succeed");
@@ -604,18 +606,16 @@ mod tests {
             .expect("insert action should succeed");
         assert!(!should_quit);
         assert!(!app.has_insert_prompt());
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("today column is full (4 tasks max)")
+        let expected = format!(
+            "today column is full ({} tasks max)",
+            crate::config::get().limits.today_hard_limit
         );
+        assert_eq!(app.status_message.as_deref(), Some(expected.as_str()));
 
         let should_quit = handle_action(UiAction::InsertBelow, &mut app, &mut repo)
             .expect("insert-below action should succeed");
         assert!(!should_quit);
         assert!(!app.has_insert_prompt());
-        assert_eq!(
-            app.status_message.as_deref(),
-            Some("today column is full (4 tasks max)")
-        );
+        assert_eq!(app.status_message.as_deref(), Some(expected.as_str()));
     }
 }

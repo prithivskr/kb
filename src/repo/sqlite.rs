@@ -5,10 +5,9 @@ use chrono::{DateTime, Duration, NaiveDate, Utc};
 use rusqlite::types::Type;
 use rusqlite::{Connection, OptionalExtension, Row, Transaction, params};
 
+use crate::config;
 use crate::domain::{Card, CardId, Column, validate_card_title};
 use crate::storage::run_migrations;
-
-const TODAY_WIP_LIMIT: i64 = 4;
 
 #[derive(Debug, Clone)]
 pub struct NewCard {
@@ -529,6 +528,7 @@ fn row_to_card(row: &Row<'_>) -> rusqlite::Result<Card> {
 }
 
 fn ensure_today_has_capacity_conn(conn: &Connection) -> Result<()> {
+    let limit = i64::try_from(config::get().limits.today_hard_limit).unwrap_or(i64::MAX);
     let count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM cards WHERE column = ?1 AND archived = 0",
@@ -536,13 +536,14 @@ fn ensure_today_has_capacity_conn(conn: &Connection) -> Result<()> {
             |row| row.get(0),
         )
         .context("failed counting today cards")?;
-    if count >= TODAY_WIP_LIMIT {
-        anyhow::bail!("today column is full ({TODAY_WIP_LIMIT} tasks max)");
+    if count >= limit {
+        anyhow::bail!("today column is full ({} tasks max)", limit);
     }
     Ok(())
 }
 
 fn ensure_today_has_capacity_tx(tx: &Transaction<'_>) -> Result<()> {
+    let limit = i64::try_from(config::get().limits.today_hard_limit).unwrap_or(i64::MAX);
     let count: i64 = tx
         .query_row(
             "SELECT COUNT(*) FROM cards WHERE column = ?1 AND archived = 0",
@@ -550,8 +551,8 @@ fn ensure_today_has_capacity_tx(tx: &Transaction<'_>) -> Result<()> {
             |row| row.get(0),
         )
         .context("failed counting today cards")?;
-    if count >= TODAY_WIP_LIMIT {
-        anyhow::bail!("today column is full ({TODAY_WIP_LIMIT} tasks max)");
+    if count >= limit {
+        anyhow::bail!("today column is full ({} tasks max)", limit);
     }
     Ok(())
 }
@@ -930,12 +931,13 @@ mod tests {
     fn today_column_hard_limit_blocks_create_insert_and_move() {
         let conn = Connection::open_in_memory().expect("in-memory db should open");
         let mut repo = SqliteRepository::new(conn).expect("repo should initialize");
+        let limit = crate::config::get().limits.today_hard_limit;
 
-        for index in 0..4 {
+        for index in 0..limit {
             repo.create_card(NewCard {
                 title: format!("Today {index}"),
                 column: Column::Today,
-                position: index,
+                position: i64::try_from(index).expect("limit index should fit i64"),
                 due_date: None,
             })
             .expect("seed today cards should succeed");
@@ -945,7 +947,7 @@ mod tests {
             .create_card(NewCard {
                 title: "Overflow create".to_string(),
                 column: Column::Today,
-                position: 4,
+                position: i64::try_from(limit).expect("limit should fit i64"),
                 due_date: None,
             })
             .expect_err("create beyond limit should fail");
@@ -977,7 +979,7 @@ mod tests {
         let today_cards = repo
             .list_cards_in_column(Column::Today)
             .expect("today list should succeed");
-        assert_eq!(today_cards.len(), 4);
+        assert_eq!(today_cards.len(), limit);
         let backlog_cards = repo
             .list_cards_in_column(Column::Backlog)
             .expect("backlog list should succeed");
