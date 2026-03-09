@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 const APP_NAME: &str = "kb";
 const CONFIG_DIR_NAME: &str = ".kb";
-const DB_FILENAME: &str = "kanban-v2.db";
+const DB_FILENAME: &str = "kanban.db";
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
