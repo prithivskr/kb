@@ -2,6 +2,12 @@
 
 Simple, opinionated kanban tui.
 
+## Installation
+```shell
+brew tap prithivskr/kb https://github.com/prithivskr/kb.git
+brew install --HEAD prithivskr/kb/kb
+```
+
 ## Default config
 
 `kb` reads config from `~/.kb/config.toml`.
