@@ -28,9 +28,7 @@ fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             _ => {
-                anyhow::bail!(
-                    "unknown argument: {arg}. Use --help for usage information."
-                );
+                anyhow::bail!("unknown argument: {arg}. Use --help for usage information.");
             }
         }
     }

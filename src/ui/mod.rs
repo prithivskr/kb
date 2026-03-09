@@ -478,9 +478,13 @@ fn handle_insert_prompt_key(
 fn handle_search_prompt_key(key: KeyEvent, app: &mut app::AppState) {
     match key.code {
         KeyCode::Esc => {
-            app.cancel_search_prompt();
-            app.set_search_query(String::new());
-            app.clear_status_message();
+            let previous_query = app.cancel_search_prompt().unwrap_or_default();
+            app.set_search_query(previous_query);
+            if let Some(active_query) = app.active_search_label() {
+                app.set_status_message(format!("search: {active_query}"));
+            } else {
+                app.clear_status_message();
+            }
         }
         KeyCode::Backspace => {
             app.pop_search_char();

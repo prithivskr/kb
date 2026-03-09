@@ -116,6 +116,7 @@ pub struct InsertPromptState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchPromptState {
     pub buffer: String,
+    pub original_query: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -365,13 +366,16 @@ impl AppState {
     }
 
     pub fn start_search_prompt(&mut self) {
+        let current_query = self.search_query.clone();
         self.search_prompt = Some(SearchPromptState {
-            buffer: self.search_query.clone().unwrap_or_default(),
+            buffer: current_query.clone().unwrap_or_default(),
+            original_query: current_query,
         });
     }
 
-    pub fn cancel_search_prompt(&mut self) {
-        self.search_prompt = None;
+    pub fn cancel_search_prompt(&mut self) -> Option<String> {
+        let prompt = self.search_prompt.take()?;
+        Some(prompt.original_query.unwrap_or_default())
     }
 
     pub fn has_search_prompt(&self) -> bool {
@@ -382,12 +386,14 @@ impl AppState {
         if let Some(prompt) = &mut self.search_prompt {
             prompt.buffer.push(ch);
         }
+        self.apply_search_from_prompt();
     }
 
     pub fn pop_search_char(&mut self) {
         if let Some(prompt) = &mut self.search_prompt {
             prompt.buffer.pop();
         }
+        self.apply_search_from_prompt();
     }
 
     pub fn submit_search_prompt(&mut self) -> Option<String> {
@@ -398,7 +404,7 @@ impl AppState {
     pub fn search_prompt_line(&self) -> Option<String> {
         let prompt = self.search_prompt.as_ref()?;
         Some(format!(
-            "search (/): {}_  (Enter apply, Esc cancel, empty clears)",
+            "search (/): {}_  (live filter, Enter keep, Esc cancel)",
             prompt.buffer
         ))
     }
@@ -475,14 +481,25 @@ impl AppState {
         self.set_selected_index(target, clamped);
     }
 
+    fn apply_search_from_prompt(&mut self) {
+        let Some(query) = self
+            .search_prompt
+            .as_ref()
+            .map(|prompt| prompt.buffer.clone())
+        else {
+            return;
+        };
+        self.set_search_query(query);
+    }
+
     fn apply_search_filter(&mut self) {
         let Some(query) = self.search_query.as_deref() else {
             self.cards = self.all_cards.clone();
             return;
         };
 
-        let terms = query_terms(query);
-        if terms.is_empty() {
+        let parsed = parse_search_query(query);
+        if parsed.tags.is_empty() && parsed.terms.is_empty() {
             self.cards = self.all_cards.clone();
             return;
         }
@@ -491,8 +508,19 @@ impl AppState {
             .all_cards
             .iter()
             .filter(|card| {
+                if !parsed.tags.iter().all(|tag| card_has_tag(card, tag)) {
+                    return false;
+                }
+
+                if parsed.terms.is_empty() {
+                    return true;
+                }
+
                 let searchable = searchable_text(card);
-                terms.iter().all(|term| fuzzy_match(&searchable, term))
+                parsed
+                    .terms
+                    .iter()
+                    .all(|term| fuzzy_match(&searchable, term))
             })
             .cloned()
             .collect();
@@ -524,13 +552,37 @@ fn map_archived_cards(cards: Vec<Card>) -> Vec<ArchivedUiCard> {
         .collect()
 }
 
-fn query_terms(query: &str) -> Vec<String> {
-    query
-        .to_lowercase()
-        .split_whitespace()
-        .map(|term| term.trim_start_matches('#').to_string())
-        .filter(|term| !term.is_empty())
-        .collect()
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SearchQueryParts {
+    tags: Vec<String>,
+    terms: Vec<String>,
+}
+
+fn parse_search_query(query: &str) -> SearchQueryParts {
+    let mut tags = Vec::new();
+    let mut terms = Vec::new();
+
+    for raw in query.to_lowercase().split_whitespace() {
+        if let Some(tag) = raw.strip_prefix('#') {
+            if !tag.is_empty() {
+                tags.push(tag.to_string());
+            }
+            continue;
+        }
+
+        if !raw.is_empty() {
+            terms.push(raw.to_string());
+        }
+    }
+
+    SearchQueryParts { tags, terms }
+}
+
+fn card_has_tag(card: &UiCard, tag: &str) -> bool {
+    card.tags.iter().any(|card_tag| {
+        let lower = card_tag.to_lowercase();
+        fuzzy_match(&lower, tag)
+    })
 }
 
 fn searchable_text(card: &UiCard) -> String {

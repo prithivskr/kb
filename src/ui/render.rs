@@ -76,10 +76,10 @@ fn board_chunks(area: Rect) -> [Rect; 4] {
     if area.width < SKINNY_TERMINAL_WIDTH {
         let rows =
             Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).split(area);
-        let top =
-            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[0]);
-        let bottom =
-            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(rows[1]);
+        let top = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[0]);
+        let bottom = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            .split(rows[1]);
         // Top row: Backlog, This Week. Bottom row: Today, Done.
         [top[0], top[1], bottom[0], bottom[1]]
     } else {

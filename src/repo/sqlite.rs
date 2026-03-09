@@ -46,23 +46,24 @@ impl SqliteRepository {
             ensure_today_has_capacity_conn(&self.conn)?;
         }
 
-        self.conn.execute(
-            "INSERT INTO cards(
+        self.conn
+            .execute(
+                "INSERT INTO cards(
                 id, title, column, position, due_date, created_at, updated_at, done_at, archived
             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                card.id.to_string(),
-                card.title,
-                card.column,
-                card.position,
-                card.due_date.map(format_date),
-                card.created_at.to_rfc3339(),
-                card.updated_at.to_rfc3339(),
-                card.done_at.map(|dt| dt.to_rfc3339()),
-                bool_to_int(card.archived),
-            ],
-        )
-        .context("failed to insert card")?;
+                params![
+                    card.id.to_string(),
+                    card.title,
+                    card.column,
+                    card.position,
+                    card.due_date.map(format_date),
+                    card.created_at.to_rfc3339(),
+                    card.updated_at.to_rfc3339(),
+                    card.done_at.map(|dt| dt.to_rfc3339()),
+                    bool_to_int(card.archived),
+                ],
+            )
+            .context("failed to insert card")?;
 
         Ok(card)
     }
