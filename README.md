@@ -2,6 +2,8 @@
 
 Simple, opinionated kanban tui.
 
+![Screenshot of kb](./screenshot.png "screenshot")
+
 ## Installation
 ```shell
 brew tap prithivskr/kb https://github.com/prithivskr/kb.git

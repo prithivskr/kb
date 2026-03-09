@@ -7,3 +7,4 @@ debug
 *.pdb
 
 **/mutants.out*/
+.DS_Store
