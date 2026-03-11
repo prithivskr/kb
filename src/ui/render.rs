@@ -189,7 +189,11 @@ fn render_cards_in_column(
 
         let card_area = Rect::new(inner.x, y, inner.width, card_height);
         let is_selected = is_active_column && index == selected_index;
-        let base_line_style = due_date_style(card.due_date, today);
+        let base_line_style = if card.column == UiColumn::Done {
+            Style::default().fg(theme::fg()).bg(theme::bg())
+        } else {
+            due_date_style(card.due_date, today)
+        };
         let line_style = if is_selected {
             base_line_style.add_modifier(Modifier::BOLD)
         } else {
